@@ -14,7 +14,7 @@ on:
 
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
-  TF_VAR_project_id: ${{ secrets.GCP_SA_KEY.project_id }}
+  TF_VAR_project_id: ${{ fromJSON(secrets.GCP_SA_KEY).project_id }}
 
 jobs:
   terraform-ci:
