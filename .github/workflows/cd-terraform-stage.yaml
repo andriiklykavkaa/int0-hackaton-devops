@@ -1,25 +1,27 @@
-name: "Terraform CD"
+name: "Terraform CD (Stage)"
 
 on:
   workflow_run:
-    workflows: ["Terraform CI"]
-    types:
-      - completed
+      workflows: ["Terraform CI"]
+      types:
+        - completed
+  push:
     branches:
       - main
+    paths:
+      - 'terraform/**'
 
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
   TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
   
 jobs:
-  terraform-apply:
-    name: 'Terraform Apply'
+  apply-stage:
+    name: 'Terraform Apply (Stage)'
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     defaults:
       run:
-        working-directory: ./terraform
+        working-directory: ./terraform/environments/stage
 
     steps:
       - name: Checkout Repository

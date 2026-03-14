@@ -18,14 +18,19 @@ env:
 
 jobs:
   terraform-ci:
-    name: 'Terraform CI'
+    name: 'TF CI (${{ matrix.environment }})'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [stage, prod]
+        
     defaults:
       run:
-        working-directory: ./terraform
+        working-directory: ./terraform/environments/${{ matrix.environment }}
 
     steps:
       - name: Checkout Repository
@@ -54,11 +59,12 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+          ENV_NAME: ${{ matrix.environment }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Звичайна конкатенація рядків, ніяких складних шаблонів
-            const output = "### Terraform Plan\n```hcl\n" + process.env.PLAN + "\n```";
+            // Додали назву середовища в заголовок коментаря
+            const output = `### Terraform Plan for **${process.env.ENV_NAME.toUpperCase()}**\n\`\`\`hcl\n${process.env.PLAN}\n\`\`\``;
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,

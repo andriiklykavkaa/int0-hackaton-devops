@@ -1,11 +1,10 @@
 resource "google_container_cluster" "primary" {
-  name     = var.cluster_name
+  name     = "squad-ecommerce-${var.env_name}"
   location = var.region
   
   network    = google_compute_network.vpc.name
   subnetwork = google_compute_subnetwork.subnet.name
 
-  # Rule the nodes manually
   remove_default_node_pool = true
   initial_node_count       = 1
 
@@ -14,29 +13,29 @@ resource "google_container_cluster" "primary" {
     services_secondary_range_name = "services-range"
   }
 
-  # Allow K8s provider to connect without shitting itself
   deletion_protection = false
+  depends_on = [google_project_service.enabled_apis]
 }
 
-# custom Service Account for GKE
 resource "google_service_account" "gke_sa" {
-  account_id   = "${var.cluster_name}-sa"
-  display_name = "Service Account for GKE Nodes"
+  account_id   = "gke-sa-${var.env_name}"
+  display_name = "Service Account for GKE Nodes (${var.env_name})"
+  
+  depends_on = [google_project_service.enabled_apis]
 }
 
-# access to Artifact Registry
 resource "google_project_iam_member" "gke_sa_registry_reader" {
   project = var.project_id
   role    = "roles/artifactregistry.reader"
   member  = "serviceAccount:${google_service_account.gke_sa.email}"
 }
 
-# access to logs and metrics
 resource "google_project_iam_member" "gke_sa_logging" {
   project = var.project_id
   role    = "roles/logging.logWriter"
   member  = "serviceAccount:${google_service_account.gke_sa.email}"
 }
+
 resource "google_project_iam_member" "gke_sa_monitoring" {
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
@@ -44,8 +43,7 @@ resource "google_project_iam_member" "gke_sa_monitoring" {
 }
 
 resource "google_container_node_pool" "primary_nodes" {
-  name       = "${var.cluster_name}-node-pool"
-  # location <- cluster
+  name       = "pool-${var.env_name}"
   location   = var.region
   cluster    = google_container_cluster.primary.name
 
@@ -55,7 +53,6 @@ resource "google_container_node_pool" "primary_nodes" {
     "${var.region}-c"
   ]
   
-  # autoscaling
   autoscaling {
     min_node_count = 1
     max_node_count = 4
