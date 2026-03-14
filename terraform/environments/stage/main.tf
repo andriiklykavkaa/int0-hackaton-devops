@@ -22,11 +22,11 @@ provider "helm" {
   }
 }
 
-resource "kubernetes_namespace_v1" "retail_store" {
-  metadata {
-    name = "retail-store-stage" 
-  }
-}
+# resource "kubernetes_namespace_v1" "retail_store" {
+#   metadata {
+#     name = "retail-store-stage" 
+#   }
+# }
 
 resource "helm_release" "argocd" {
   name             = "argocd"

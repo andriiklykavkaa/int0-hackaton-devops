@@ -32,3 +32,14 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
+
+      - name: Get GKE Credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: retail-store-stage
+          location: europe-central2
+          project_id: ${{ env.TF_VAR_project_id }}
+
+      - name: Deploy App of Apps
+        run: |
+          kubectl apply -f ../../../gitops/argocd/app-of-apps.yaml -n argocd
