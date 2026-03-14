@@ -1,0 +1,33 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: retail-store-require-pod-hardening
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-pod-hardening
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              selector:
+                matchLabels:
+                  app.kubernetes.io/owner: retail-store-sample
+                  app.kubernetes.io/component: service
+      validate:
+        message: "Retail Store service pods must run with non-root, read-only, no-escalation security settings."
+        pattern:
+          spec:
+            securityContext:
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - securityContext:
+                  runAsNonRoot: true
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL

@@ -1,0 +1,106 @@
+name: Kyverno Stage Policies
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "platform/kyverno/**"
+      - ".github/workflows/kyverno-stage.yaml"
+      - "src/ui/chart/values.yaml"
+      - "src/cart/chart/values.yaml"
+      - "src/catalog/chart/values.yaml"
+      - "src/checkout/chart/values.yaml"
+      - "src/orders/chart/values.yaml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apply-and-verify:
+    name: Apply and Verify Kyverno Policies
+    runs-on: ubuntu-latest
+    env:
+      GKE_CLUSTER_NAME: int-hackaton-uyak
+      GKE_LOCATION: europe-central2
+      KYVERNO_NAMESPACE: kyverno
+      KYVERNO_VERSION: v1.17.1
+      STAGE_NAMESPACE: retail-store-stage
+      TEST_NAMESPACE: retail-store-policy-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER_NAME }}
+          location: ${{ env.GKE_LOCATION }}
+
+      - name: Install or verify Kyverno
+        run: |
+          if kubectl get crd clusterpolicies.kyverno.io >/dev/null 2>&1; then
+            echo "Kyverno CRDs already present."
+          else
+            kubectl create namespace "${KYVERNO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+            kubectl apply -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
+          fi
+
+          kubectl wait --for=condition=Established crd/clusterpolicies.kyverno.io --timeout=180s
+          kubectl rollout status deployment/kyverno-admission-controller -n "${KYVERNO_NAMESPACE}" --timeout=300s
+
+      - name: Apply Kyverno policies to stage cluster
+        run: |
+          kubectl apply -f platform/kyverno/policies
+          kubectl get clusterpolicy >> $GITHUB_STEP_SUMMARY
+
+      - name: Prepare temporary test namespace
+        run: |
+          kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found=true --wait=true
+          kubectl create namespace "${TEST_NAMESPACE}"
+
+      - name: Verify invalid manifests are rejected
+        run: |
+          set +e
+          kubectl apply -n "${TEST_NAMESPACE}" -f platform/kyverno/tests/invalid-latest-pod.yaml
+          INVALID_LATEST_EXIT=$?
+          kubectl apply -n "${TEST_NAMESPACE}" -f platform/kyverno/tests/invalid-security-pod.yaml
+          INVALID_SECURITY_EXIT=$?
+          set -e
+
+          if [ "${INVALID_LATEST_EXIT}" -eq 0 ]; then
+            echo "invalid-latest-pod was accepted but should have been rejected" >&2
+            exit 1
+          fi
+
+          if [ "${INVALID_SECURITY_EXIT}" -eq 0 ]; then
+            echo "invalid-security-pod was accepted but should have been rejected" >&2
+            exit 1
+          fi
+
+      - name: Verify valid manifest is accepted
+        run: |
+          kubectl apply -n "${TEST_NAMESPACE}" -f platform/kyverno/tests/valid-pod.yaml
+          kubectl wait -n "${TEST_NAMESPACE}" --for=condition=Ready pod/valid-kyverno-pod --timeout=120s
+
+      - name: Cleanup test namespace
+        if: always()
+        run: |
+          kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found=true --wait=true
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## Kyverno stage validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Policies applied from \`platform/kyverno/policies\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Invalid manifests were expected to fail admission" >> $GITHUB_STEP_SUMMARY
+          echo "- Valid manifest was expected to pass admission" >> $GITHUB_STEP_SUMMARY
