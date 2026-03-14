@@ -96,25 +96,33 @@ jobs:
             src/${{ matrix.service }}
 
       # ── Security scanning with Trivy ──────────────────────
-      # Scans the freshly built local image before it ever touches the registry
-      - name: Trivy vulnerability scan (table — PR comment)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ steps.tags.outputs.primary_tag }}
-          format: table
-          exit-code: "0"           # never block the build — report only
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-          output: trivy-${{ matrix.service }}.txt
+      # Install via apt — avoids GitHub release download rate limits
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -qq && sudo apt-get install -y trivy
+
+      - name: Trivy vulnerability scan (table report)
+        run: |
+          trivy image \
+            --format table \
+            --exit-code 0 \
+            --ignore-unfixed \
+            --severity CRITICAL,HIGH \
+            --output trivy-${{ matrix.service }}.txt \
+            ${{ steps.tags.outputs.primary_tag }}
 
       - name: Trivy scan (SARIF — GitHub Security tab)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ steps.tags.outputs.primary_tag }}
-          format: sarif
-          output: trivy-${{ matrix.service }}.sarif
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
+        run: |
+          trivy image \
+            --format sarif \
+            --exit-code 0 \
+            --ignore-unfixed \
+            --severity CRITICAL,HIGH \
+            --output trivy-${{ matrix.service }}.sarif \
+            ${{ steps.tags.outputs.primary_tag }}
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
