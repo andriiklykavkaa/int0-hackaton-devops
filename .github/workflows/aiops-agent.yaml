@@ -88,6 +88,7 @@ jobs:
             --namespace "${{ steps.target.outputs.app_namespace }}"
             --prometheus-url "http://127.0.0.1:9090"
             --output "/tmp/aiops-report.json"
+            --fail-on-collector-errors
           )
 
           if [ "${{ github.event.inputs.enable_llm_analysis }}" = "true" ]; then

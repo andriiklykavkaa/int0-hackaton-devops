@@ -31,6 +31,15 @@ python3 platform/aiops/agent.py \
   --output /tmp/aiops-report.json
 ```
 
+Fail fast if Kubernetes or Prometheus collection is incomplete:
+
+```bash
+python3 platform/aiops/agent.py \
+  --namespace retail-store-stage \
+  --prometheus-url http://localhost:9090 \
+  --fail-on-collector-errors
+```
+
 Run with local sample data:
 
 ```bash
@@ -74,9 +83,9 @@ Prometheus:
 
 ## Next Step
 
-The next iteration should wire this agent into a manual GitHub Actions workflow
-so it can authenticate to GKE, query Prometheus, and publish the incident
-summary directly in CI.
+The next iteration should extend the agent with stronger test coverage,
+dashboard links, and richer diagnosis so the CI output is easier to use
+during demos and incident drills.
 
 ## GitHub Actions
 
@@ -88,6 +97,7 @@ It does the following:
 - gets GKE credentials for `stage` or `prod`
 - port-forwards Prometheus inside the runner
 - runs `platform/aiops/agent.py`
+- fails the job if Kubernetes or Prometheus collection is incomplete
 - publishes the markdown summary and JSON report as workflow output
 
 Optional LLM mode requires these GitHub secrets:

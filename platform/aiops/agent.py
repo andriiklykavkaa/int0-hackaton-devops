@@ -50,6 +50,14 @@ class LlmConfig:
     api_key: str
 
 
+@dataclass
+class CollectorError:
+    source: str
+    collector: str
+    details: str
+    query: str | None = None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Collect cluster health signals and produce a compact incident summary."
@@ -87,6 +95,11 @@ def parse_args() -> argparse.Namespace:
         choices=("markdown", "json"),
         default="markdown",
         help="Console output format.",
+    )
+    parser.add_argument(
+        "--fail-on-collector-errors",
+        action="store_true",
+        help="Exit non-zero when Kubernetes or Prometheus signal collection fails.",
     )
     return parser.parse_args()
 
@@ -161,6 +174,45 @@ def collect_prometheus(namespace: str, base_url: str | None, mock_dir: Path | No
         except Exception as exc:  # pragma: no cover - exercised via runtime
             results[name] = {"status": "error", "error": str(exc), "query": query}
     return results
+
+
+def compact_error_message(message: str) -> str:
+    lines = [line.strip() for line in message.splitlines() if line.strip()]
+    if not lines:
+        return "Unknown collector error."
+    return lines[-1]
+
+
+def collect_collector_errors(
+    kubernetes: dict[str, Any],
+    prometheus: dict[str, Any],
+) -> list[CollectorError]:
+    collector_errors: list[CollectorError] = []
+
+    for collector, payload in kubernetes.items():
+        error = payload.get("error")
+        if error:
+            collector_errors.append(
+                CollectorError(
+                    source="kubernetes",
+                    collector=collector,
+                    details=compact_error_message(error),
+                )
+            )
+
+    for collector, payload in prometheus.items():
+        error = payload.get("error")
+        if error or payload.get("status") == "error":
+            collector_errors.append(
+                CollectorError(
+                    source="prometheus",
+                    collector=collector,
+                    details=compact_error_message(error or "Prometheus query failed."),
+                    query=payload.get("query"),
+                )
+            )
+
+    return collector_errors
 
 
 def float_value(result: dict[str, Any]) -> float | None:
@@ -371,17 +423,33 @@ def analyze_prometheus(metrics: dict[str, Any]) -> list[Finding]:
     return findings
 
 
-def summarize(findings: list[Finding]) -> dict[str, Any]:
+def summarize(
+    findings: list[Finding],
+    collector_errors: list[CollectorError],
+    total_collectors: int,
+) -> dict[str, Any]:
     severity_rank = {"info": 0, "warning": 1, "critical": 2}
     overall = "healthy"
-    if findings:
+    collection_status = "complete"
+
+    if collector_errors:
+        collection_status = "failed" if len(collector_errors) >= total_collectors else "partial_failure"
+
+    if collector_errors and findings:
+        overall = "degraded"
+    elif collector_errors:
+        overall = "unknown"
+    elif findings:
         overall = max(findings, key=lambda item: severity_rank[item.severity]).severity
 
     return {
         "overall_status": overall,
+        "collection_status": collection_status,
         "finding_count": len(findings),
         "critical_count": sum(1 for item in findings if item.severity == "critical"),
         "warning_count": sum(1 for item in findings if item.severity == "warning"),
+        "collector_error_count": len(collector_errors),
+        "collector_errors": [asdict(item) for item in collector_errors],
         "findings": [asdict(item) for item in findings],
     }
 
@@ -472,14 +540,34 @@ def render_markdown(
         f"- Environment: `{environment}`",
         f"- Namespace: `{namespace}`",
         f"- Overall status: `{summary['overall_status']}`",
+        f"- Collection status: `{summary['collection_status']}`",
         f"- Findings: `{summary['finding_count']}`",
         f"- Critical: `{summary['critical_count']}`",
         f"- Warning: `{summary['warning_count']}`",
+        f"- Collector errors: `{summary['collector_error_count']}`",
         "",
     ]
 
+    if summary["collector_errors"]:
+        lines.extend(
+            [
+                "Signal collection completed with errors. Findings may be incomplete until Kubernetes and Prometheus access is restored.",
+                "",
+                "## Collector Errors",
+                "",
+            ]
+        )
+        for item in summary["collector_errors"]:
+            lines.append(f"- [{item['source']}/{item['collector']}] {item['details']}")
+            if item.get("query"):
+                lines.append(f"  - Query: `{item['query']}`")
+        lines.append("")
+
     if not summary["findings"]:
-        lines.append("No urgent findings detected from the current Kubernetes and Prometheus signals.")
+        if summary["collector_errors"]:
+            lines.append("No workload findings were produced because signal collection was incomplete.")
+        else:
+            lines.append("No urgent findings detected from the current Kubernetes and Prometheus signals.")
         return "\n".join(lines)
 
     lines.append("## Findings")
@@ -506,6 +594,8 @@ def main() -> int:
 
     kubernetes = collect_kubernetes(args.namespace, mock_dir)
     prometheus = collect_prometheus(args.namespace, args.prometheus_url, mock_dir)
+    collector_errors = collect_collector_errors(kubernetes, prometheus)
+    total_collectors = len(kubernetes) + len(prometheus)
 
     findings = []
     findings.extend(analyze_pods(kubernetes.get("pods", {})))
@@ -517,7 +607,7 @@ def main() -> int:
     report = {
         "environment": args.environment,
         "namespace": args.namespace,
-        "summary": summarize(findings),
+        "summary": summarize(findings, collector_errors, total_collectors),
         "raw": {
             "kubernetes": kubernetes,
             "prometheus": prometheus,
@@ -548,6 +638,9 @@ def main() -> int:
                 llm_analysis,
             )
         )
+
+    if args.fail_on_collector_errors and collector_errors:
+        return 2
 
     return 0
 
