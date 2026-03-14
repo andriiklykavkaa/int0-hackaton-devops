@@ -16,9 +16,9 @@ spec:
         - values.yaml
       parameters:
         - name: image.repository
-          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-images/retail-store-sample-cart
+          value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-images/retail-store-sample-cart
         - name: image.tag
-          value: 6103dce   # CI updates this to git SHA on merge
+          value: 6103dce   
         - name: autoscaling.enabled
           value: "true"
         - name: autoscaling.minReplicas

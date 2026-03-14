@@ -19,7 +19,7 @@ spec:
       # Environment-specific overrides — CI updates image.tag on every merge
       parameters:
         - name: image.repository
-          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-store/retail-store-sample-catalog
+          value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-store/retail-store-sample-catalog
         - name: image.tag
           value: latest   # CI workflow updates this to the git SHA on merge
         - name: replicaCount

@@ -17,7 +17,7 @@ spec:
         - values.yaml
       parameters:
         - name: image.repository
-          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-store/retail-store-sample-ui
+          value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-store/retail-store-sample-ui
         - name: image.tag
           value: 6103dce   # CI updates this to git SHA on merge
         - name: replicaCount
