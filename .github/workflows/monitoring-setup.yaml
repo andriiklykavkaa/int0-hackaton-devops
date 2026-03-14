@@ -179,3 +179,4 @@ jobs:
           echo "- Values file: \`${{ steps.target.outputs.values_file }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- ServiceMonitors, PrometheusRule, and Grafana dashboard ConfigMaps applied" >> "$GITHUB_STEP_SUMMARY"
           echo "- Optional DB and queue exporters applied only when matching backend Services exist" >> "$GITHUB_STEP_SUMMARY"
+          cat >> "$GITHUB_STEP_SUMMARY" <<'YAML'
