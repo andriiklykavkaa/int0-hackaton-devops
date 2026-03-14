@@ -1,0 +1,56 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: retail-store-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: retail-store
+spec:
+  groups:
+    - name: retail-store.application
+      rules:
+        - alert: RetailStoreHighErrorRate
+          expr: |
+            (
+              sum by (application) (
+                rate(http_server_requests_seconds_count{namespace="retail-store-stage",application=~"cart|orders|ui",status=~"5.."}[5m])
+              )
+              /
+              clamp_min(
+                sum by (application) (
+                  rate(http_server_requests_seconds_count{namespace="retail-store-stage",application=~"cart|orders|ui"}[5m])
+                ),
+                0.001
+              )
+            ) > 0.01
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High 5xx error rate on {{ $labels.application }}"
+            description: "Error rate exceeded 1% for {{ $labels.application }} in retail-store-stage."
+        - alert: RetailStoreHighLatencyP95
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (application, le) (
+                rate(http_server_requests_seconds_bucket{namespace="retail-store-stage",application=~"cart|orders|ui"}[5m])
+              )
+            ) > 0.5
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High p95 latency on {{ $labels.application }}"
+            description: "p95 latency exceeded 500ms for {{ $labels.application }} in retail-store-stage."
+        - alert: RetailStoreTargetDown
+          expr: |
+            min by (job) (
+              up{namespace="retail-store-stage"}
+            ) == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Prometheus target down for {{ $labels.job }}"
+            description: "A scraped Retail Store target has been down for more than 2 minutes."

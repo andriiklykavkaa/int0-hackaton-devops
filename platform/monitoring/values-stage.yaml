@@ -1,0 +1,52 @@
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    externalLabels:
+      cluster: squad-ecommerce-stage
+      environment: stage
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard-rwo
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 20Gi
+
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard-rwo
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+
+grafana:
+  enabled: true
+  adminPassword: change-me-securely
+  persistence:
+    enabled: true
+    storageClassName: standard-rwo
+    size: 5Gi
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+
+nodeExporter:
+  enabled: true
+  operatingSystem: linux
+
+kubeStateMetrics:
+  enabled: true
+
+prometheusOperator:
+  enabled: true

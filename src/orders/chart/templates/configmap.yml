@@ -5,6 +5,8 @@ metadata:
   name: {{ include "orders.configMapName" . }}
 data:
   RETAIL_ORDERS_MESSAGING_PROVIDER: {{ .Values.app.messaging.provider }}
+  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILES_HISTOGRAM_HTTP_SERVER_REQUESTS: "true"
+  MANAGEMENT_METRICS_TAGS_APPLICATION: orders
   {{- if (eq "rabbitmq" .Values.app.messaging.provider) }}
   RETAIL_ORDERS_MESSAGING_RABBITMQ_ADDRESSES: {{ include "orders.rabbitmq.addresses" . }}
   {{- end }}

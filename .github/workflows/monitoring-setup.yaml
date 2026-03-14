@@ -2,15 +2,59 @@ name: Infrastructure Monitoring
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: stage
+        type: choice
+        options:
+          - stage
+          - prod
   push:
+    branches:
+      - main
     paths:
       - "platform/monitoring/**"
+      - ".github/workflows/monitoring-setup.yaml"
+      - "src/**/chart/templates/configmap*"
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   deploy-prometheus-stack:
     runs-on: ubuntu-latest
+    env:
+      HELM_RELEASE_NAME: kube-stack
+      HELM_CHART_VERSION: 80.13.2
+      MONITORING_NAMESPACE: monitoring
+      GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve target environment
+        id: target
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+
+          if [ -z "${ENVIRONMENT}" ]; then
+            ENVIRONMENT="stage"
+          fi
+
+          if [ "${ENVIRONMENT}" = "prod" ]; then
+            echo "cluster_name=squad-ecommerce-prod" >> "$GITHUB_OUTPUT"
+            echo "app_namespace=retail-store-prod" >> "$GITHUB_OUTPUT"
+            echo "values_file=platform/monitoring/values-prod.yaml" >> "$GITHUB_OUTPUT"
+          else
+            echo "cluster_name=squad-ecommerce-stage" >> "$GITHUB_OUTPUT"
+            echo "app_namespace=retail-store-stage" >> "$GITHUB_OUTPUT"
+            echo "values_file=platform/monitoring/values-stage.yaml" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "environment=${ENVIRONMENT}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Helm
         uses: azure/setup-helm@v4
@@ -23,15 +67,75 @@ jobs:
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: squad-ecommerce-stage # OR prod
+          cluster_name: ${{ steps.target.outputs.cluster_name }}
           location: europe-central2
 
-      - name: Deploy Monitoring Stack
+      - name: Deploy kube-prometheus-stack
         run: |
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo update
-          # Устанавливаем стек: Prometheus, Grafana, Alertmanager и Node Exporter
-          helm upgrade --install kube-stack prometheus-community/kube-prometheus-stack \
-            --namespace monitoring --create-namespace \
-            --set grafana.enabled=true \
-            --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false
+
+          EXTRA_HELM_ARGS=()
+          if [ -n "${GRAFANA_ADMIN_PASSWORD}" ]; then
+            EXTRA_HELM_ARGS+=(--set-string "grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD}")
+          fi
+
+          helm upgrade --install "${HELM_RELEASE_NAME}" prometheus-community/kube-prometheus-stack \
+            --version "${HELM_CHART_VERSION}" \
+            --namespace "${MONITORING_NAMESPACE}" \
+            --create-namespace \
+            -f "${{ steps.target.outputs.values_file }}" \
+            "${EXTRA_HELM_ARGS[@]}"
+
+      - name: Wait for monitoring CRDs and core workloads
+        run: |
+          kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=300s
+          kubectl wait --for=condition=Established crd/prometheusrules.monitoring.coreos.com --timeout=300s
+          kubectl rollout status deployment/${HELM_RELEASE_NAME}-grafana -n "${MONITORING_NAMESPACE}" --timeout=600s
+          kubectl rollout status deployment/${HELM_RELEASE_NAME}-kube-prometheus-operator -n "${MONITORING_NAMESPACE}" --timeout=600s
+          kubectl rollout status deployment/${HELM_RELEASE_NAME}-kube-state-metrics -n "${MONITORING_NAMESPACE}" --timeout=600s
+          kubectl rollout status daemonset/${HELM_RELEASE_NAME}-prometheus-node-exporter -n "${MONITORING_NAMESPACE}" --timeout=600s
+          kubectl rollout status statefulset/alertmanager-${HELM_RELEASE_NAME}-kube-prometheus-alertmanager -n "${MONITORING_NAMESPACE}" --timeout=600s
+          kubectl rollout status statefulset/prometheus-${HELM_RELEASE_NAME}-kube-prometheus-prometheus -n "${MONITORING_NAMESPACE}" --timeout=600s
+
+      - name: Render environment-specific monitoring resources
+        run: |
+          mkdir -p /tmp/monitoring-manifests/servicemonitors /tmp/monitoring-manifests/rules /tmp/monitoring-manifests/dashboards
+
+          APP_NAMESPACE="${{ steps.target.outputs.app_namespace }}"
+
+          for file in platform/monitoring/servicemonitors/*.yaml; do
+            sed "s/retail-store-stage/${APP_NAMESPACE}/g" "${file}" > "/tmp/monitoring-manifests/servicemonitors/$(basename "${file}")"
+          done
+
+          for file in platform/monitoring/rules/*.yaml; do
+            sed "s/retail-store-stage/${APP_NAMESPACE}/g" "${file}" > "/tmp/monitoring-manifests/rules/$(basename "${file}")"
+          done
+
+          for file in platform/monitoring/dashboards/*.yaml; do
+            sed "s/retail-store-stage/${APP_NAMESPACE}/g" "${file}" > "/tmp/monitoring-manifests/dashboards/$(basename "${file}")"
+          done
+
+      - name: Apply monitoring resources
+        run: |
+          kubectl apply -f /tmp/monitoring-manifests/servicemonitors
+          kubectl apply -f /tmp/monitoring-manifests/rules
+          kubectl apply -f /tmp/monitoring-manifests/dashboards
+
+      - name: Verify monitoring resources
+        run: |
+          kubectl get servicemonitor -n "${MONITORING_NAMESPACE}"
+          kubectl get prometheusrule -n "${MONITORING_NAMESPACE}"
+          kubectl get configmap retail-store-overview-dashboard -n "${MONITORING_NAMESPACE}"
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## Monitoring deployment summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: \`${{ steps.target.outputs.environment }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cluster: \`${{ steps.target.outputs.cluster_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- App namespace: \`${{ steps.target.outputs.app_namespace }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Helm release: \`${HELM_RELEASE_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Values file: \`${{ steps.target.outputs.values_file }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ServiceMonitors, PrometheusRule, and Grafana dashboard ConfigMap applied" >> "$GITHUB_STEP_SUMMARY"
