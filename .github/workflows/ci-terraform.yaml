@@ -14,11 +14,15 @@ on:
 
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+  TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
 
 jobs:
   terraform-ci:
     name: 'Terraform CI'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     defaults:
       run:
         working-directory: ./terraform
@@ -31,11 +35,6 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
-
-      - name: Terraform Format
-        id: fmt
-        run: terraform fmt -check
-        continue-on-error: true
 
       - name: Terraform Init
         id: init
@@ -58,22 +57,9 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const output = `
-            #### Terraform Format `${{ steps.fmt.outcome }}\`
-            #### Terraform Init `${{ steps.init.outcome }}\`
-            #### Terraform Valid `${{ steps.validate.outcome }}\`
-            #### Terraform Plan `${{ steps.plan.outcome }}\`
-
-            <details><summary>Show Plan</summary>
-
-            \`\`\`\n
-            ${process.env.PLAN}
-            \`\`\`
-
-            </details>
-
-            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-
+            // Звичайна конкатенація рядків, ніяких складних шаблонів
+            const output = "### Terraform Plan\n```hcl\n" + process.env.PLAN + "\n```";
+            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
