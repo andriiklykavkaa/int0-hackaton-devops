@@ -23,7 +23,7 @@ jobs:
     name: Apply and Verify Kyverno Policies
     runs-on: ubuntu-latest
     env:
-      GKE_CLUSTER_NAME: int-hackaton-uyak
+      GKE_CLUSTER_NAME: squad-ecommerce-stage
       GKE_LOCATION: europe-central2
       KYVERNO_NAMESPACE: kyverno
       KYVERNO_VERSION: v1.17.1
@@ -94,6 +94,7 @@ jobs:
       - name: Cleanup test namespace
         if: always()
         run: |
+          kubectl config current-context >/dev/null 2>&1 || exit 0
           kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found=true --wait=true
 
       - name: Job summary
