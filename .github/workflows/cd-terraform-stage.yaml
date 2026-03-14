@@ -14,7 +14,7 @@ env:
   
 jobs:
   apply-stage:
-    name: 'Terraform Apply (Stage)'
+    name: 'TF CD (Stage)'
     runs-on: ubuntu-latest
     defaults:
       run:

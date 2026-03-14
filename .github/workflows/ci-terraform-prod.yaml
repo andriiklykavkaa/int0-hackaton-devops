@@ -5,7 +5,7 @@ on:
     types: [published]
 
 concurrency:
-  group: tf-prod-release
+  group: tf-prod-lock
   cancel-in-progress: false
 
 env:
@@ -13,8 +13,8 @@ env:
   TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
   
 jobs:
-  apply-prod:
-    name: 'Terraform Plan & Apply (Prod)'
+  plan-prod:
+    name: 'TF CI (Prod)'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,9 +29,6 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
-        
+
       - name: Terraform Plan
         run: terraform plan -no-color
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve
