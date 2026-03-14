@@ -6,7 +6,6 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
   annotations:
-    # Visible in Argo CD UI and useful for audit
     app.kubernetes.io/component: catalog
     app.kubernetes.io/part-of: retail-store
 spec:
@@ -16,7 +15,6 @@ spec:
     targetRevision: main
     path: src/catalog/chart
     helm:
-      # Values file is environment-specific — overridden per env via valueFiles
       valueFiles:
         - values.yaml
   destination:
@@ -28,10 +26,9 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true   # Handles large CRDs and avoids annotation size limits
-  # Health check: only mark Healthy when all pods are Running
+      - ServerSideApply=true
   ignoreDifferences:
     - group: apps
       kind: Deployment
       jsonPointers:
-        - /spec/replicas   # Ignore HPA-managed replica count drift
+        - /spec/replicas
