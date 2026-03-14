@@ -83,7 +83,11 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GAR_HOST }} --quiet
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GAR_HOST }}
+          username: _json_key
+          password: ${{ secrets.GCP_SA_KEY }}
 
       # ── Build image (no push yet — Trivy scans local image first) ──
       - name: Build image
