@@ -25,7 +25,13 @@ Test manifests:
 
 Typical stage rollout:
 
-1. Ensure Kyverno is installed in the cluster.
+1. Reconcile the Kyverno platform installation in the stage cluster.
 2. Apply the policies in `platform/kyverno/policies/`.
 3. Run the test manifests in a temporary namespace.
 4. Promote the same policies to production after stage validation.
+
+Workflow ownership model:
+
+- `.github/workflows/kyverno-stage.yaml` is the owner of the Kyverno bootstrap in the stage cluster.
+- The workflow intentionally uses server-side apply to reconcile the upstream Kyverno install manifest.
+- The workflow then validates the Retail Store-specific admission policies with known-good and known-bad test pods.
