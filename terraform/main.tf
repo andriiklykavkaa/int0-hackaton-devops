@@ -1,6 +1,7 @@
 
 resource "google_project_service" "enabled_apis" {
   for_each = toset([
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",          # for VPC and networkі
     "container.googleapis.com",        # for GKE cluster
     "artifactregistry.googleapis.com", # for Artifact Registry
