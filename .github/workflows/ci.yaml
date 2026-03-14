@@ -174,7 +174,6 @@ jobs:
           SERVICE="${{ matrix.service }}"
           FILE="gitops/environments/stage/${SERVICE}-app.yaml"
 
-          # Replace the image.tag parameter value with the new SHA
           sed -i "s|value: .*  # CI updates this to git SHA on merge|value: ${SHORT_SHA}   # CI updates this to git SHA on merge|" "${FILE}"
 
           git config user.name "github-actions[bot]"

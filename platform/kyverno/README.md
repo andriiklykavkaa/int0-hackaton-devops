@@ -14,12 +14,14 @@ policy later.
 Included policies:
 
 - `require-pod-hardening.yaml`: enforce non-root, read-only filesystem, no privilege escalation, and `RuntimeDefault` seccomp.
+- `disallow-privileged.yaml`: block privileged containers across standard, init, and ephemeral containers.
 - `disallow-latest-tag.yaml`: block `:latest` images.
 - `require-resource-requests.yaml`: require CPU and memory requests plus a memory limit.
 
 Test manifests:
 
 - `tests/invalid-latest-pod.yaml`
+- `tests/invalid-privileged-pod.yaml`
 - `tests/invalid-security-pod.yaml`
 - `tests/valid-pod.yaml`
 
