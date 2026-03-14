@@ -20,6 +20,8 @@ jobs:
   terraform-ci:
     name: 'Terraform CI'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     defaults:
       run:
         working-directory: ./terraform
@@ -54,21 +56,9 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const output = `
-            #### Terraform Init \`${{ steps.init.outcome }}\`
-            #### Terraform Valid \`${{ steps.validate.outcome }}\`
-            #### Terraform Plan \`${{ steps.plan.outcome }}\`
-
-            <details><summary>Show Plan</summary>
-
-            \`\`\`\n
-            ${process.env.PLAN}
-            \`\`\`
-
-            </details>
-
-            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-
+            // Звичайна конкатенація рядків, ніяких складних шаблонів
+            const output = "### Terraform Plan\n```hcl\n" + process.env.PLAN + "\n```";
+            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
