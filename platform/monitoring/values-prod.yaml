@@ -29,13 +29,25 @@ alertmanager:
             requests:
               storage: 10Gi
 
+
 grafana:
   enabled: true
   adminPassword: change-me-securely
+  
+  readinessProbe:
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 6
+
   persistence:
     enabled: true
     storageClassName: standard-rwo
     size: 10Gi
+    
   sidecar:
     dashboards:
       enabled: true
