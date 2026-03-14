@@ -55,9 +55,6 @@ jobs:
       - name: Setup Docker (Buildx)
         uses: ./.github/actions/setup-docker
 
-      - name: Setup Env (mise + yarn)
-        uses: ./.github/actions/setup-env
-
       # ── Image tagging strategy ────────────────────────────
       # PR   → <sha>-pr<number>            (never pushed to registry)
       # main → <sha> + latest              (pushed on merge)
@@ -99,9 +96,10 @@ jobs:
       # ── Build image (no push yet — Trivy scans local image first) ──
       - name: Build image
         run: |
-          yarn nx container ${{ matrix.service }} \
-            --tags "${{ steps.tags.outputs.primary_tag }}" \
-            --load true
+          docker buildx build \
+            --tag "${{ steps.tags.outputs.primary_tag }}" \
+            --load \
+            src/${{ matrix.service }}
 
       # ── Security scanning with Trivy ──────────────────────
       # Scans the freshly built local image before it ever touches the registry
