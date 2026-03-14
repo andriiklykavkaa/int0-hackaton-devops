@@ -3,7 +3,7 @@ resource "google_compute_global_address" "ingress_ip" {
     name = "squad-${var.env_name}-static-ip"
 }
 
-resource "google_dns_managed_zone" "ecomerce_zone" {
+resource "google_dns_managed_zone" "ecommerce_zone" {
     name        = "squad-${var.env_name}-zone"
     dns_name    = "squad-team.com."
     description = "DNS zone for ${var.env_name} environment"
