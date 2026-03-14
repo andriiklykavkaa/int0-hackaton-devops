@@ -19,7 +19,7 @@ spec:
         - name: image.repository
           value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-store/retail-store-sample-ui
         - name: image.tag
-          value: c1228df   # CI updates this to git SHA on merge
+          value: c687f12   # CI updates this to git SHA on merge
         - name: replicaCount
           value: "1"
         - name: autoscaling.enabled
