@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "reason": "Unhealthy",
+      "message": "Readiness probe failed: connection refused",
+      "lastTimestamp": "2026-03-15T10:00:00Z",
+      "involvedObject": {
+        "kind": "Pod",
+        "name": "orders-stage-7f88b7698c-abcde"
+      }
+    },
+    {
+      "reason": "BackOff",
+      "message": "Back-off restarting failed container",
+      "lastTimestamp": "2026-03-15T09:59:00Z",
+      "involvedObject": {
+        "kind": "Pod",
+        "name": "orders-stage-7f88b7698c-abcde"
+      }
+    }
+  ]
+}

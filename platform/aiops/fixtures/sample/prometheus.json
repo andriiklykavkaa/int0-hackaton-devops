@@ -1,0 +1,110 @@
+{
+  "request_rate": {
+    "status": "success",
+    "data": {
+      "result": [
+        {
+          "metric": {},
+          "value": [
+            1742032800,
+            "18.4"
+          ]
+        }
+      ]
+    }
+  },
+  "error_rate": {
+    "status": "success",
+    "data": {
+      "result": [
+        {
+          "metric": {
+            "application": "orders"
+          },
+          "value": [
+            1742032800,
+            "0.034"
+          ]
+        }
+      ]
+    }
+  },
+  "latency_p95": {
+    "status": "success",
+    "data": {
+      "result": [
+        {
+          "metric": {
+            "application": "orders"
+          },
+          "value": [
+            1742032800,
+            "0.812"
+          ]
+        }
+      ]
+    }
+  },
+  "pod_restarts": {
+    "status": "success",
+    "data": {
+      "result": [
+        {
+          "metric": {
+            "pod": "orders-stage-7f88b7698c-abcde"
+          },
+          "value": [
+            1742032800,
+            "4"
+          ]
+        }
+      ]
+    }
+  },
+  "cpu_throttling": {
+    "status": "success",
+    "data": {
+      "result": [
+        {
+          "metric": {
+            "pod": "checkout-stage-76867fb7db-klmno"
+          },
+          "value": [
+            1742032800,
+            "0.28"
+          ]
+        }
+      ]
+    }
+  },
+  "target_down": {
+    "status": "success",
+    "data": {
+      "result": [
+        {
+          "metric": {
+            "job": "orders"
+          },
+          "value": [
+            1742032800,
+            "0"
+          ]
+        }
+      ]
+    }
+  },
+  "queue_backlog": {
+    "status": "success",
+    "data": {
+      "result": [
+        {
+          "metric": {},
+          "value": [
+            1742032800,
+            "144"
+          ]
+        }
+      ]
+    }
+  }
+}

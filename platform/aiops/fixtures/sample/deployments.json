@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "metadata": {
+        "name": "orders-stage"
+      },
+      "spec": {
+        "replicas": 2
+      },
+      "status": {
+        "updatedReplicas": 1,
+        "availableReplicas": 1
+      }
+    }
+  ]
+}

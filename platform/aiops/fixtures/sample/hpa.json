@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "metadata": {
+        "name": "checkout-stage"
+      },
+      "spec": {
+        "maxReplicas": 5
+      },
+      "status": {
+        "currentReplicas": 5,
+        "conditions": [
+          {
+            "type": "ScalingLimited",
+            "status": "True",
+            "message": "the desired replica count is more than the maximum replica count"
+          }
+        ]
+      }
+    }
+  ]
+}

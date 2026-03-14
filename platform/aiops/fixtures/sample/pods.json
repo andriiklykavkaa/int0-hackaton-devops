@@ -1,0 +1,40 @@
+{
+  "items": [
+    {
+      "metadata": {
+        "name": "orders-stage-7f88b7698c-abcde"
+      },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          {
+            "name": "orders",
+            "ready": false,
+            "state": {
+              "waiting": {
+                "reason": "CrashLoopBackOff"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "catalog-stage-5c69b8d7f4-fghij"
+      },
+      "status": {
+        "phase": "Running",
+        "containerStatuses": [
+          {
+            "name": "catalog",
+            "ready": true,
+            "state": {
+              "running": {}
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
