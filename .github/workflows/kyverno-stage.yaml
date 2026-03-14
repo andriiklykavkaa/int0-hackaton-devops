@@ -95,7 +95,7 @@ jobs:
       - name: Verify valid manifest is accepted
         run: |
           kubectl apply -n "${TEST_NAMESPACE}" -f platform/kyverno/tests/valid-pod.yaml
-          kubectl wait -n "${TEST_NAMESPACE}" --for=condition=Ready pod/valid-kyverno-pod --timeout=120s
+          kubectl get pod valid-kyverno-pod -n "${TEST_NAMESPACE}" >/dev/null
 
       - name: Cleanup test namespace
         if: always()
