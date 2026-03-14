@@ -174,6 +174,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "${FILE}"
           git diff --cached --quiet || git commit -m "chore(gitops): update ${SERVICE} image to ${SHORT_SHA} [skip ci]"
+          git pull --rebase origin main
           git push
 
       # ── Summary ───────────────────────────────────────────
