@@ -36,7 +36,7 @@ jobs:
       - name: Get GKE Credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: retail-store-stage
+          cluster_name: squad-ecommerce-stage
           location: europe-central2
           project_id: ${{ env.TF_VAR_project_id }}
 
