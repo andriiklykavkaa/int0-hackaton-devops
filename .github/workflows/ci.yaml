@@ -19,8 +19,6 @@ on:
 
 permissions:
   contents: read
-  # Required for Workload Identity Federation
-  id-token: write
   # Required to upload SARIF to GitHub Security tab
   security-events: write
   # Required to post PR comments
@@ -31,8 +29,7 @@ env:
   GCP_REGION: europe-central2
   # Full Artifact Registry hostname
   GAR_HOST: europe-central2-docker.pkg.dev
-  # Set by Participant 1 Terraform output — override via repo secret GCP_PROJECT_ID
-  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_PROJECT_ID: ${{ secrets.PROJECT_ID }}
   # Artifact Registry repo name created by Terraform
   GAR_REPO: retail-store
 
@@ -80,15 +77,12 @@ jobs:
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-      # ── Authenticate to GCP via Workload Identity Federation ──
-      # No long-lived service account keys — uses OIDC token from GitHub Actions
-      # Participant 1 must configure the WIF pool and grant roles/artifactregistry.writer
+      # ── Authenticate to GCP via Service Account JSON key ──
       - name: Authenticate to GCP (WIF)
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.GAR_HOST }} --quiet
