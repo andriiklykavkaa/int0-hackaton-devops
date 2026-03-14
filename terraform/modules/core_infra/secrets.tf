@@ -1,5 +1,5 @@
 resource "google_secret_manager_secret" "db_password" {
-  secret_id = "db-password"
+  secret_id = "db-password-${var.env_name}"
   
   replication {
     auto {}
@@ -8,7 +8,6 @@ resource "google_secret_manager_secret" "db_password" {
   depends_on = [google_project_service.enabled_apis]
 }
 
-# GKE must read from Secret Manager
 resource "google_project_iam_member" "gke_sa_secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"

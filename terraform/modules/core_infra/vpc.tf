@@ -1,10 +1,12 @@
 resource "google_compute_network" "vpc" {
-  name                    = "${var.cluster_name}-vpc"
+  name                    = "squad-ecommerce-${var.env_name}-vpc"
   auto_create_subnetworks = false
+
+  depends_on = [google_project_service.enabled_apis]
 }
 
 resource "google_compute_subnetwork" "subnet" {
-  name          = "${var.cluster_name}-subnet"
+  name          = "squad-ecommerce-${var.env_name}-subnet"
   region        = var.region
   network       = google_compute_network.vpc.name
   ip_cidr_range = "10.10.0.0/16"
