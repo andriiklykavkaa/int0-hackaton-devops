@@ -1,0 +1,49 @@
+# 1. General Setting (Решает проблему мультикластерности)
+prometheus:
+  prometheusSpec:
+    externalLabels:
+      cluster: "squad-ecommerce-stage" 
+      
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard-rwo
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+
+nodeExporter:
+  enabled: true
+  operatingSystem: linux
+
+kubeStateMetrics:
+  enabled: true
+
+
+grafana:
+  enabled: true
+  adminPassword: "change-me-securely" 
+  
+  persistence:
+    enabled: true
+    storageClassName: standard-rwo
+    size: 5Gi
+
+
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+
+prometheusOperator:
+  serviceMonitorSelectorNilUsesHelmValues: false
