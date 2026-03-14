@@ -8,6 +8,9 @@ on:
     paths:
       - "src/catalog/**"
       - "src/ui/**"
+      - "src/cart/**"
+      - "src/orders/**"
+      - "src/checkout/**"
       - ".github/workflows/ci.yaml"
   push:
     branches:
@@ -15,6 +18,9 @@ on:
     paths:
       - "src/catalog/**"
       - "src/ui/**"
+      - "src/cart/**"
+      - "src/orders/**"
+      - "src/checkout/**"
       - ".github/workflows/ci.yaml"
 
 permissions:
@@ -41,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [catalog, ui]
+        service: [catalog, ui, cart, orders, checkout]
 
     steps:
       - name: Checkout
