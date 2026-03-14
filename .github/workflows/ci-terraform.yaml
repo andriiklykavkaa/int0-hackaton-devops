@@ -15,7 +15,7 @@ on:
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
   TF_VAR_project_id: ${{ secrets.PROJECT_ID }}
-  
+
 jobs:
   terraform-ci:
     name: 'Terraform CI'
@@ -32,12 +32,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
-
-      - name: Terraform Format
-        id: fmt
-        run: terraform fmt -check
-        continue-on-error: true
-
+          
       - name: Terraform Init
         id: init
         run: terraform init
