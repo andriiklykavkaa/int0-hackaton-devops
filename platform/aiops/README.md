@@ -49,6 +49,12 @@ python3 platform/aiops/agent.py \
   --mock-dir platform/aiops/fixtures/sample
 ```
 
+Run the unit tests locally:
+
+```bash
+python3 -m unittest test_aiops_agent.py -v
+```
+
 Run with optional AI diagnosis using an OpenAI-compatible endpoint:
 
 ```bash

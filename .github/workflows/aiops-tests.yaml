@@ -1,0 +1,39 @@
+name: AIOps Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "platform/aiops/**"
+      - "test_aiops_agent.py"
+      - ".github/workflows/aiops-tests.yaml"
+      - ".github/workflows/aiops-agent.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "platform/aiops/**"
+      - "test_aiops_agent.py"
+      - ".github/workflows/aiops-tests.yaml"
+      - ".github/workflows/aiops-agent.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run AIOps unit tests
+        run: |
+          python3 -m unittest test_aiops_agent.py -v
