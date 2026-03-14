@@ -1,0 +1,129 @@
+name: AIOps Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: stage
+        type: choice
+        options:
+          - stage
+          - prod
+      enable_llm_analysis:
+        description: "Enable OpenAI-compatible incident diagnosis"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  analyze-cluster:
+    runs-on: ubuntu-latest
+    env:
+      MONITORING_NAMESPACE: monitoring
+      PROMETHEUS_SERVICE_NAME: kube-stack-kube-prometheus-prometheus
+      AIOPS_OPENAI_BASE_URL: ${{ secrets.AIOPS_OPENAI_BASE_URL }}
+      AIOPS_OPENAI_MODEL: ${{ secrets.AIOPS_OPENAI_MODEL }}
+      AIOPS_OPENAI_API_KEY: ${{ secrets.AIOPS_OPENAI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target environment
+        id: target
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+
+          if [ -z "${ENVIRONMENT}" ]; then
+            ENVIRONMENT="stage"
+          fi
+
+          if [ "${ENVIRONMENT}" = "prod" ]; then
+            echo "cluster_name=squad-ecommerce-prod" >> "$GITHUB_OUTPUT"
+            echo "app_namespace=retail-store-prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "cluster_name=squad-ecommerce-stage" >> "$GITHUB_OUTPUT"
+            echo "app_namespace=retail-store-stage" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "environment=${ENVIRONMENT}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ steps.target.outputs.cluster_name }}
+          location: europe-central2
+
+      - name: Start Prometheus port-forward
+        run: |
+          kubectl get svc "${PROMETHEUS_SERVICE_NAME}" -n "${MONITORING_NAMESPACE}"
+          kubectl -n "${MONITORING_NAMESPACE}" port-forward "svc/${PROMETHEUS_SERVICE_NAME}" 9090:9090 >/tmp/prometheus-port-forward.log 2>&1 &
+          echo $! > /tmp/prometheus-port-forward.pid
+
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9090/-/ready >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Prometheus port-forward did not become ready" >&2
+          cat /tmp/prometheus-port-forward.log >&2 || true
+          exit 1
+
+      - name: Run AIOps agent
+        run: |
+          ARGS=(
+            --environment "${{ steps.target.outputs.environment }}"
+            --namespace "${{ steps.target.outputs.app_namespace }}"
+            --prometheus-url "http://127.0.0.1:9090"
+            --output "/tmp/aiops-report.json"
+          )
+
+          if [ "${{ github.event.inputs.enable_llm_analysis }}" = "true" ]; then
+            ARGS+=(--enable-llm-analysis)
+          fi
+
+          python3 platform/aiops/agent.py "${ARGS[@]}" > /tmp/aiops-summary.md
+
+      - name: Publish job summary
+        if: always()
+        run: |
+          echo "## AIOps analysis summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: \`${{ steps.target.outputs.environment }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cluster: \`${{ steps.target.outputs.cluster_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Namespace: \`${{ steps.target.outputs.app_namespace }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- LLM analysis: \`${{ github.event.inputs.enable_llm_analysis }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```markdown' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/aiops-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload AIOps report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aiops-report-${{ steps.target.outputs.environment }}-${{ github.run_id }}
+          path: |
+            /tmp/aiops-summary.md
+            /tmp/aiops-report.json
+            /tmp/prometheus-port-forward.log
+          retention-days: 14
+
+      - name: Stop Prometheus port-forward
+        if: always()
+        run: |
+          if [ -f /tmp/prometheus-port-forward.pid ]; then
+            kill "$(cat /tmp/prometheus-port-forward.pid)" || true
+          fi

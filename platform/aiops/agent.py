@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import urllib.parse
@@ -13,6 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 PROMETHEUS_QUERIES = {
     "request_rate": "sum(retail:http_request_rate5m)",
@@ -41,6 +43,13 @@ class Finding:
     recommendation: str
 
 
+@dataclass
+class LlmConfig:
+    base_url: str
+    model: str
+    api_key: str
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Collect cluster health signals and produce a compact incident summary."
@@ -53,6 +62,26 @@ def parse_args() -> argparse.Namespace:
         help="Read collector inputs from a local directory instead of calling kubectl/Prometheus.",
     )
     parser.add_argument("--output", help="Write the full report JSON to this file.")
+    parser.add_argument(
+        "--enable-llm-analysis",
+        action="store_true",
+        help="Call an OpenAI-compatible API to generate a higher-level incident diagnosis.",
+    )
+    parser.add_argument(
+        "--llm-base-url",
+        default=os.getenv("AIOPS_OPENAI_BASE_URL", ""),
+        help="OpenAI-compatible API base URL. Can also come from AIOPS_OPENAI_BASE_URL.",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default=os.getenv("AIOPS_OPENAI_MODEL", ""),
+        help="Model name for the OpenAI-compatible API. Can also come from AIOPS_OPENAI_MODEL.",
+    )
+    parser.add_argument(
+        "--llm-api-key",
+        default=os.getenv("AIOPS_OPENAI_API_KEY", ""),
+        help="API key for the OpenAI-compatible API. Can also come from AIOPS_OPENAI_API_KEY.",
+    )
     parser.add_argument(
         "--format",
         choices=("markdown", "json"),
@@ -69,6 +98,15 @@ def load_mock_json(mock_dir: Path | None, name: str) -> Any | None:
     if not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+def load_mock_text(mock_dir: Path | None, name: str) -> str | None:
+    if not mock_dir:
+        return None
+    path = mock_dir / f"{name}.txt"
+    if not path.exists():
+        return None
+    return path.read_text()
 
 
 def run_kubectl_json(namespace: str, args: list[str]) -> dict[str, Any]:
@@ -348,7 +386,86 @@ def summarize(findings: list[Finding]) -> dict[str, Any]:
     }
 
 
-def render_markdown(environment: str, namespace: str, summary: dict[str, Any]) -> str:
+def load_prompt(name: str) -> str:
+    return (PROMPTS_DIR / name).read_text()
+
+
+def build_llm_config(args: argparse.Namespace, mock_dir: Path | None) -> LlmConfig | None:
+    if not args.enable_llm_analysis:
+        return None
+    if load_mock_text(mock_dir, "llm_response") is not None:
+        return None
+    if not args.llm_base_url or not args.llm_model or not args.llm_api_key:
+        raise RuntimeError(
+            "LLM analysis requires --llm-base-url, --llm-model, and --llm-api-key "
+            "(or matching AIOPS_OPENAI_* environment variables)."
+        )
+    return LlmConfig(
+        base_url=args.llm_base_url,
+        model=args.llm_model,
+        api_key=args.llm_api_key,
+    )
+
+
+def call_openai_compatible(config: LlmConfig, system_prompt: str, user_prompt: str) -> str:
+    url = f"{config.base_url.rstrip('/')}/chat/completions"
+    payload = {
+        "model": config.model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.2,
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.api_key}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    return body["choices"][0]["message"]["content"].strip()
+
+
+def generate_llm_analysis(
+    environment: str,
+    namespace: str,
+    summary: dict[str, Any],
+    mock_dir: Path | None,
+    config: LlmConfig | None,
+) -> str | None:
+    mock_text = load_mock_text(mock_dir, "llm_response")
+    if mock_text is not None:
+        return mock_text.strip()
+
+    if not config:
+        return None
+
+    system_prompt = load_prompt("incident-analysis-system.txt")
+    user_prompt = json.dumps(
+        {
+            "environment": environment,
+            "namespace": namespace,
+            "overall_status": summary["overall_status"],
+            "critical_count": summary["critical_count"],
+            "warning_count": summary["warning_count"],
+            "findings": summary["findings"],
+        },
+        indent=2,
+    )
+    return call_openai_compatible(config, system_prompt, user_prompt)
+
+
+def render_markdown(
+    environment: str,
+    namespace: str,
+    summary: dict[str, Any],
+    llm_analysis: str | None,
+) -> str:
     lines = [
         f"# AIOps Incident Summary",
         "",
@@ -376,12 +493,16 @@ def render_markdown(environment: str, namespace: str, summary: dict[str, Any]) -
             ]
         )
 
+    if llm_analysis:
+        lines.extend(["", "## AI Diagnosis", "", llm_analysis])
+
     return "\n".join(lines)
 
 
 def main() -> int:
     args = parse_args()
     mock_dir = Path(args.mock_dir).resolve() if args.mock_dir else None
+    llm_config = build_llm_config(args, mock_dir)
 
     kubernetes = collect_kubernetes(args.namespace, mock_dir)
     prometheus = collect_prometheus(args.namespace, args.prometheus_url, mock_dir)
@@ -403,6 +524,15 @@ def main() -> int:
         },
     }
 
+    llm_analysis = generate_llm_analysis(
+        environment=args.environment,
+        namespace=args.namespace,
+        summary=report["summary"],
+        mock_dir=mock_dir,
+        config=llm_config,
+    )
+    report["llm_analysis"] = llm_analysis
+
     if args.output:
         output_path = Path(args.output)
         output_path.write_text(json.dumps(report, indent=2))
@@ -410,7 +540,14 @@ def main() -> int:
     if args.format == "json":
         print(json.dumps(report, indent=2))
     else:
-        print(render_markdown(args.environment, args.namespace, report["summary"]))
+        print(
+            render_markdown(
+                args.environment,
+                args.namespace,
+                report["summary"],
+                llm_analysis,
+            )
+        )
 
     return 0
 

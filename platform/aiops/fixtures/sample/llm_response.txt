@@ -1,0 +1,10 @@
+### Summary
+Orders is the main degraded service. It is failing at runtime with elevated 5xx rate, high latency, restart churn, and a down scrape target. Checkout is also under load pressure because its HPA is capped and one pod shows high CPU throttling. RabbitMQ backlog growth suggests downstream order processing is not keeping up.
+
+### Likely Cause
+The most likely primary issue is an `orders` rollout or runtime failure causing probe failures and repeated restarts. That failure is also likely contributing to the queue backlog and user-facing errors.
+
+### Immediate Actions
+1. Inspect `orders` pod logs and describe output to confirm the crash or probe failure cause.
+2. Check the `orders` deployment rollout and revert or restart if the latest change is unhealthy.
+3. Raise checkout capacity or CPU allocation temporarily while investigating the `orders` failure path.
