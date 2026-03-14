@@ -11,7 +11,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "squad-hackathon-tf-state-123" # change to real name
+    bucket = "int-final-tfstate-bucket"
     prefix = "terraform/state"
   }
 }
