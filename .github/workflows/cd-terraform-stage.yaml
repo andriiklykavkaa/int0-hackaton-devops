@@ -2,7 +2,7 @@ name: "Terraform CD (Stage)"
 
 on:
   workflow_run:
-      workflows: ["Terraform CI"]
+      workflows: ["Terraform CI (Stage)"]
       types:
         - completed
       branches:

@@ -1,4 +1,4 @@
-name: "Terraform CI"
+name: "Terraform CI (Stage)"
 
 on:
   push:
@@ -12,26 +12,24 @@ on:
     paths:
       - 'terraform/**'
 
+concurrency:
+  group: tf-ci-stage-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
   TF_VAR_project_id: ${{ fromJSON(secrets.GCP_SA_KEY).project_id }}
 
 jobs:
-  terraform-ci:
-    name: 'TF CI (${{ matrix.environment }})'
+  terraform-ci-stage:
+    name: 'TF CI (Stage)'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        environment: [stage, prod]
-        
     defaults:
       run:
-        working-directory: ./terraform/environments/${{ matrix.environment }}
+        working-directory: ./terraform/environments/stage
 
     steps:
       - name: Checkout Repository
@@ -39,15 +37,11 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false
 
       - name: Terraform Init
-        id: init
         run: terraform init
 
       - name: Terraform Validate
-        id: validate
         run: terraform validate -no-color
 
       - name: Terraform Plan
@@ -60,13 +54,10 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
-          ENV_NAME: ${{ matrix.environment }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Додали назву середовища в заголовок коментаря
-            const output = `### Terraform Plan for **${process.env.ENV_NAME.toUpperCase()}**\n\`\`\`hcl\n${process.env.PLAN}\n\`\`\``;
-            
+            const output = `### Terraform Plan for **STAGE**\n\`\`\`hcl\n${process.env.PLAN}\n\`\`\``;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
