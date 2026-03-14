@@ -22,7 +22,7 @@ provider "helm" {
 
 data "google_client_config" "default" {}
 
-resource "kubernetes_namespace" "retail_store" {
+resource "kubernetes_namespace_v1" "retail_store" {
   metadata {
     name = "retail-store-stage" 
   }
@@ -36,7 +36,7 @@ resource "helm_release" "argocd" {
   create_namespace = true
   version          = "7.7.0"
 
-  set = {
+  set {
     name  = "server.service.type"
     value = "ClusterIP"
   }
