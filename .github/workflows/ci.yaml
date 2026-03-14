@@ -18,9 +18,7 @@ on:
       - ".github/workflows/ci.yaml"
 
 permissions:
-  contents: read
-  # Required to upload SARIF to GitHub Security tab
-  security-events: write
+  contents: write
   # Required to post PR comments
   pull-requests: write
 
@@ -113,22 +111,6 @@ jobs:
             --severity CRITICAL,HIGH \
             --output trivy-${{ matrix.service }}.txt \
             ${{ steps.tags.outputs.primary_tag }}
-
-      - name: Trivy scan (SARIF — GitHub Security tab)
-        run: |
-          trivy image \
-            --format sarif \
-            --exit-code 0 \
-            --ignore-unfixed \
-            --severity CRITICAL,HIGH \
-            --output trivy-${{ matrix.service }}.sarif \
-            ${{ steps.tags.outputs.primary_tag }}
-
-      - name: Upload SARIF to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-${{ matrix.service }}.sarif
-          category: trivy-${{ matrix.service }}
 
       # Post scan summary as PR comment so reviewers see it inline
       - name: Post Trivy report as PR comment
