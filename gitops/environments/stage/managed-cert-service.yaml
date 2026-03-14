@@ -2,7 +2,7 @@ apiVersion: networking.gke.io/v1
 kind: ManagedCertificate
 metadata:
   name: stage-ssl-cert
-  namespace: squad-ecommerce-stage
+  namespace: retail-store-stage
 spec:
   domains:
     - "34.8.135.138.nip.io"
