@@ -18,7 +18,7 @@ spec:
         - name: image.repository
           value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-images/retail-store-sample-orders
         - name: image.tag
-          value: be08094   # CI updates this to git SHA on merge
+          value: cf8c0c6   # CI updates this to git SHA on merge
         - name: autoscaling.enabled
           value: "true"
         - name: autoscaling.minReplicas
