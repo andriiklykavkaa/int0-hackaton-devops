@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cart-stage
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
+    targetRevision: main
+    path: src/cart/chart
+    helm:
+      valueFiles:
+        - values.yaml
+      parameters:
+        - name: image.repository
+          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-images/retail-store-sample-cart
+        - name: image.tag
+          value: latest   # CI updates this to git SHA on merge
+        - name: autoscaling.enabled
+          value: "true"
+        - name: autoscaling.minReplicas
+          value: "1"
+        - name: autoscaling.maxReplicas
+          value: "5"
+        - name: metrics.enabled
+          value: "true"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: retail-store-stage
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
