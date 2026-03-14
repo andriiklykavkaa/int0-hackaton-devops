@@ -5,3 +5,17 @@ module "core_infra" {
   region     = var.region
   env_name   = "stage" 
 }
+
+data "google_client_config" "default" {}
+
+provider "kubernetes" {
+  host                   = "https://${module.core_infra.cluster_endpoint}"
+  token                  = data.google_client_config.default.access_token
+  cluster_ca_certificate = base64decode(module.core_infra.cluster_ca_certificate)
+}
+
+resource "kubernetes_namespace" "retail_store" {
+  metadata {
+    name = "retail-store-${var_name.env}" 
+  }
+}
