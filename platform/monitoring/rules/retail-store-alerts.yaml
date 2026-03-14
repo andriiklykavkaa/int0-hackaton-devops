@@ -9,7 +9,20 @@ spec:
   groups:
     - name: retail-store.application
       rules:
-        - alert: RetailStoreHighErrorRate
+        - record: retail:http_request_rate5m
+          expr: |
+            (
+              sum by (application) (
+                rate(http_server_requests_seconds_count{namespace="retail-store-stage",application=~"cart|orders|ui"}[5m])
+              )
+            )
+            or
+            (
+              sum by (application) (
+                rate(retail_http_requests_total{namespace="retail-store-stage",application=~"catalog|checkout"}[5m])
+              )
+            )
+        - record: retail:http_error_rate5m
           expr: |
             (
               sum by (application) (
@@ -22,7 +35,39 @@ spec:
                 ),
                 0.001
               )
-            ) > 0.01
+            )
+            or
+            (
+              sum by (application) (
+                rate(retail_http_requests_total{namespace="retail-store-stage",application=~"catalog|checkout",status=~"5.."}[5m])
+              )
+              /
+              clamp_min(
+                sum by (application) (
+                  rate(retail_http_requests_total{namespace="retail-store-stage",application=~"catalog|checkout"}[5m])
+                ),
+                0.001
+              )
+            )
+        - record: retail:http_latency_p95_seconds5m
+          expr: |
+            histogram_quantile(
+              0.95,
+              (
+                sum by (application, le) (
+                  rate(http_server_requests_seconds_bucket{namespace="retail-store-stage",application=~"cart|orders|ui"}[5m])
+                )
+              )
+              or
+              (
+                sum by (application, le) (
+                  rate(retail_http_request_duration_seconds_bucket{namespace="retail-store-stage",application=~"catalog|checkout"}[5m])
+                )
+              )
+            )
+        - alert: RetailStoreHighErrorRate
+          expr: |
+            retail:http_error_rate5m > 0.01
           for: 2m
           labels:
             severity: critical
@@ -31,12 +76,7 @@ spec:
             description: "Error rate exceeded 1% for {{ $labels.application }} in retail-store-stage."
         - alert: RetailStoreHighLatencyP95
           expr: |
-            histogram_quantile(
-              0.95,
-              sum by (application, le) (
-                rate(http_server_requests_seconds_bucket{namespace="retail-store-stage",application=~"cart|orders|ui"}[5m])
-              )
-            ) > 0.5
+            retail:http_latency_p95_seconds5m > 0.5
           for: 2m
           labels:
             severity: warning

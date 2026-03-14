@@ -23,6 +23,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TerminusModule } from '@nestjs/terminus';
 import { CheckoutModule } from './checkout/checkout.module';
 import { LoggerMiddleware } from './middleware/logger.middleware';
+import { MetricsMiddleware } from './middleware/metrics.middleware';
 import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 import { OpenTelemetryModule } from 'nestjs-otel';
 import { ChaosController } from './chaos/chaos.controller';
@@ -47,6 +48,7 @@ const OpenTelemetryModuleConfig = OpenTelemetryModule.forRoot({});
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
+    consumer.apply(MetricsMiddleware).forRoutes('*');
     consumer.apply(LoggerMiddleware).exclude('health').forRoutes('*');
     consumer.apply(ChaosMiddleware).forRoutes('checkout/*splat');
   }

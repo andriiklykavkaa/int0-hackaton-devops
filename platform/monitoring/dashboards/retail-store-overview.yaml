@@ -60,7 +60,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum by (application) (rate(http_server_requests_seconds_count{namespace=\"retail-store-stage\",application=~\"cart|orders|ui\"}[5m]))",
+              "expr": "retail:http_request_rate5m",
               "legendFormat": "{{application}}",
               "refId": "A"
             }
@@ -100,7 +100,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum by (application) (rate(http_server_requests_seconds_count{namespace=\"retail-store-stage\",application=~\"cart|orders|ui\",status=~\"5..\"}[5m])) / clamp_min(sum by (application) (rate(http_server_requests_seconds_count{namespace=\"retail-store-stage\",application=~\"cart|orders|ui\"}[5m])), 0.001)",
+              "expr": "retail:http_error_rate5m",
               "legendFormat": "{{application}}",
               "refId": "A"
             }
@@ -140,7 +140,7 @@ data:
           },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, sum by (application, le) (rate(http_server_requests_seconds_bucket{namespace=\"retail-store-stage\",application=~\"cart|orders|ui\"}[5m])))",
+              "expr": "retail:http_latency_p95_seconds5m",
               "legendFormat": "{{application}}",
               "refId": "A"
             }

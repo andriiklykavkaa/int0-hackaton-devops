@@ -89,6 +89,7 @@ func main() {
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipPaths: []string{"/health"},
 	}))
+	r.Use(middleware.MetricsMiddleware())
 
 	p := ginprometheus.NewPrometheus("gin")
 	p.Use(r)
