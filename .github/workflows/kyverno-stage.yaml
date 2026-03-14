@@ -51,7 +51,7 @@ jobs:
             echo "Kyverno CRDs already present."
           else
             kubectl create namespace "${KYVERNO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-            kubectl apply -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
+            kubectl apply --server-side -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
           fi
 
           kubectl wait --for=condition=Established crd/clusterpolicies.kyverno.io --timeout=180s
