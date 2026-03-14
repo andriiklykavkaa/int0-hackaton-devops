@@ -29,7 +29,7 @@ spec:
           value: "true"
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: retail-store-stage
   syncPolicy:
     automated:
       prune: true
