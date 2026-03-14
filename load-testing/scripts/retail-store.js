@@ -23,13 +23,11 @@ import { check, group, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
 import { randomItem } from "https://jslib.k6.io/k6-utils/1.4.0/index.js";
 
-// ── Custom metrics (exported to Prometheus via k6 --out xk6-prometheus) ──────
 export const errorRate = new Rate("custom_error_rate");
 export const checkoutDuration = new Trend("custom_checkout_duration_ms", true);
 export const catalogDuration = new Trend("custom_catalog_duration_ms", true);
 export const cartAddCounter = new Counter("custom_cart_add_total");
 
-// ── Test configuration ────────────────────────────────────────────────────────
 export const options = {
   stages: [
     { duration: "2m", target: 50 },   // Ramp-up
@@ -40,21 +38,16 @@ export const options = {
   ],
 
   thresholds: {
-    // SLO 1: 95th percentile latency under 500ms
     http_req_duration: ["p(95)<500"],
-    // SLO 2: error rate under 1%
     custom_error_rate: ["rate<0.01"],
-    // SLO 3: checkout flow specifically under 800ms p95
     custom_checkout_duration_ms: ["p(95)<800"],
   },
 
-  // Tag all requests with scenario name for Grafana filtering
   tags: { testName: "retail-store-hpa-demo" },
 };
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8888";
 
-// Realistic product IDs from the retail store seed data
 const PRODUCT_IDS = [
   "6d62d909-f957-430e-8689-b5129c0bb75e",
   "a0a4f044-b040-410d-8ead-4de0446aec7e",
@@ -63,7 +56,6 @@ const PRODUCT_IDS = [
   "ee3715be-b4ba-11ea-b3de-0242ac130004",
 ];
 
-// ── Helper: check & track errors ─────────────────────────────────────────────
 function request(method, url, body, params) {
   const res = method === "POST"
     ? http.post(url, body, params)
@@ -76,20 +68,17 @@ function request(method, url, body, params) {
   return res;
 }
 
-// ── Main scenario ─────────────────────────────────────────────────────────────
 export default function () {
   const params = {
     headers: { "Accept": "text/html,application/json" },
     timeout: "10s",
   };
 
-  // 1. Homepage
   group("homepage", () => {
     request("GET", `${BASE_URL}/home`, null, params);
     sleep(0.5);
   });
 
-  // 2. Catalog browsing
   group("catalog", () => {
     const startTime = Date.now();
 
@@ -102,7 +91,6 @@ export default function () {
     sleep(1);
   });
 
-  // 3. Add to cart
   group("cart", () => {
     const productId = randomItem(PRODUCT_IDS);
     const res = request("POST", `${BASE_URL}/cart`, {
@@ -117,7 +105,6 @@ export default function () {
     sleep(0.5);
   });
 
-  // 4. Checkout flow (most CPU-intensive path)
   group("checkout", () => {
     const startTime = Date.now();
 
@@ -144,7 +131,6 @@ export default function () {
   sleep(Math.random() * 2 + 1); // 1–3s think time between iterations
 }
 
-// ── Setup: verify app is reachable before test starts ────────────────────────
 export function setup() {
   const res = http.get(`${BASE_URL}/actuator/health`);
   if (res.status !== 200) {
@@ -153,7 +139,6 @@ export function setup() {
   return { baseUrl: BASE_URL };
 }
 
-// ── Teardown: print summary ───────────────────────────────────────────────────
 export function teardown(data) {
   console.log(`Load test completed against: ${data.baseUrl}`);
 }

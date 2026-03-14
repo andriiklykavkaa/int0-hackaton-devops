@@ -1,5 +1,3 @@
-# Stores the k6 script as a ConfigMap so the Job can mount it without
-# baking it into a custom image. Easy to update without rebuilding.
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -24,14 +24,12 @@ echo "Mode   : $MODE"
 echo ""
 
 if [[ "$MODE" == "smoke" ]]; then
-  # Quick sanity check — 5 VUs for 30s, strict thresholds
   BASE_URL="$BASE_URL" k6 run \
     --vus 5 \
     --duration 30s \
     --thresholds '{"http_req_duration":["p(95)<500"],"custom_error_rate":["rate<0.01"]}' \
     "$SCRIPT_DIR/scripts/retail-store.js"
 else
-  # Full scenario with all phases
   BASE_URL="$BASE_URL" k6 run \
     --out json="$SCRIPT_DIR/results/summary-$(date +%Y%m%d-%H%M%S).json" \
     "$SCRIPT_DIR/scripts/retail-store.js"

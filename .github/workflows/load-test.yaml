@@ -1,6 +1,5 @@
 name: Load Test
 
-# Triggered manually (for demo) or automatically after a successful deploy to stage
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +11,6 @@ on:
         description: "Override test duration in minutes (leave empty for full scenario)"
         required: false
         default: ""
-  # Auto-trigger after CI pushes to main (deploy complete)
   workflow_run:
     workflows: ["CI"]
     types: [completed]
@@ -26,7 +24,6 @@ jobs:
   load-test:
     name: "k6 Load Test + HPA Watch"
     runs-on: ubuntu-latest
-    # Only run on successful CI (for workflow_run trigger)
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -46,7 +43,7 @@ jobs:
           cluster_name: squad-ecommerce-stage
           location: europe-central2
 
-      # ── Verify HPA exists and autoscaling is enabled ───────────────
+      # Verify HPA exists and autoscaling is enabled
       - name: Verify HPA configuration
         run: |
           echo "### HPA Status (before load test)" >> $GITHUB_STEP_SUMMARY
@@ -58,7 +55,7 @@ jobs:
           kubectl get hpa -n retail-store-stage | grep -E "catalog|ui" || \
             (echo "ERROR: HPA not found — set autoscaling.enabled=true in Helm values" && exit 1)
 
-      # ── Push k6 script into cluster as ConfigMap ───────────────────
+      # Push k6 script into cluster as ConfigMap
       - name: Deploy k6 script ConfigMap
         run: |
           kubectl create configmap k6-scripts \
@@ -66,7 +63,7 @@ jobs:
             -n retail-store-stage \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      # ── Run load test as a Kubernetes Job ─────────────────────────
+      # Run load test as a Kubernetes Job
       - name: Run k6 load test (in-cluster Job)
         run: |
           # Delete previous job if exists
@@ -91,7 +88,7 @@ jobs:
 
           exit $EXIT_CODE
 
-      # ── Watch HPA during/after test ────────────────────────────────
+      # Watch HPA during/after test
       - name: Capture HPA scale-out evidence
         if: always()
         run: |
@@ -115,7 +112,7 @@ jobs:
             grep -A 5 "Events:" | tee -a $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      # ── Collect k6 results from pod ────────────────────────────────
+      # Collect k6 results from pod
       - name: Collect k6 results
         if: always()
         run: |
@@ -136,7 +133,7 @@ jobs:
           path: k6-summary.json
           retention-days: 30
 
-      # ── Parse and display SLO results ─────────────────────────────
+      # Parse and display SLO results
       - name: Parse SLO results
         if: always()
         run: |
