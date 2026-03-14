@@ -18,11 +18,42 @@ resource "google_container_cluster" "primary" {
   deletion_protection = false
 }
 
+# custom Service Account for GKE
+resource "google_service_account" "gke_sa" {
+  account_id   = "${var.cluster_name}-sa"
+  display_name = "Service Account for GKE Nodes"
+}
+
+# access to Artifact Registry
+resource "google_project_iam_member" "gke_sa_registry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.gke_sa.email}"
+}
+
+# access to logs and metrics
+resource "google_project_iam_member" "gke_sa_logging" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.gke_sa.email}"
+}
+resource "google_project_iam_member" "gke_sa_monitoring" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.gke_sa.email}"
+}
+
 resource "google_container_node_pool" "primary_nodes" {
   name       = "${var.cluster_name}-node-pool"
   # location <- cluster
   location   = var.region
   cluster    = google_container_cluster.primary.name
+
+  node_locations = [
+    "${var.region}-a",
+    "${var.region}-b",
+    "${var.region}-c"
+  ]
   
   # autoscaling
   autoscaling {
@@ -34,8 +65,7 @@ resource "google_container_node_pool" "primary_nodes" {
     machine_type = "e2-standard-4"
     disk_size_gb = 50
 
-    oauth_scopes = [
-      "https://www.googleapis.com/auth/cloud-platform"
-    ]
+    service_account = google_service_account.gke_sa.email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 }
