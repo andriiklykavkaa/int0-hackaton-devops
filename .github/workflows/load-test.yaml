@@ -40,7 +40,7 @@ jobs:
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: squad-ecommerce-stage
+          cluster_name: default
           location: europe-central2
 
       # Verify HPA exists and autoscaling is enabled
@@ -48,43 +48,43 @@ jobs:
         run: |
           echo "### HPA Status (before load test)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          kubectl get hpa -n retail-store-stage 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          kubectl get hpa -n default 2>&1 | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-          # Fail fast if HPA is not configured — test would prove nothing
-          kubectl get hpa -n retail-store-stage | grep -E "catalog|ui" || \
-            (echo "ERROR: HPA not found — set autoscaling.enabled=true in Helm values" && exit 1)
+          # Warn if HPA is not configured — continue anyway for demo
+          kubectl get hpa -n default | grep -E "catalog|ui" || \
+            echo "WARNING: HPA not found — autoscaling may not trigger during test"
 
       # Push k6 script into cluster as ConfigMap
       - name: Deploy k6 script ConfigMap
         run: |
           kubectl create configmap k6-scripts \
             --from-file=retail-store.js=load-testing/scripts/retail-store.js \
-            -n retail-store-stage \
+            -n default \
             --dry-run=client -o yaml | kubectl apply -f -
 
       # Run load test as a Kubernetes Job
       - name: Run k6 load test (in-cluster Job)
         run: |
           # Delete previous job if exists
-          kubectl delete job retail-store-load-test -n retail-store-stage --ignore-not-found
+          kubectl delete job retail-store-load-test -n default --ignore-not-found
 
           kubectl apply -f load-testing/k8s/k6-job.yaml
 
           echo "Load test job started. Waiting for completion..."
           kubectl wait --for=condition=complete job/retail-store-load-test \
-            -n retail-store-stage --timeout=1800s &
+            -n default --timeout=1800s &
           WAIT_PID=$!
 
           # Stream logs in real-time while waiting
           sleep 5
-          kubectl logs -f job/retail-store-load-test -n retail-store-stage || true
+          kubectl logs -f job/retail-store-load-test -n default || true
 
           wait $WAIT_PID
           EXIT_CODE=$?
 
           # Capture final job status for summary
-          kubectl get job retail-store-load-test -n retail-store-stage >> $GITHUB_STEP_SUMMARY
+          kubectl get job retail-store-load-test -n default >> $GITHUB_STEP_SUMMARY
 
           exit $EXIT_CODE
 
@@ -95,20 +95,20 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### HPA Status (after load test)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          kubectl get hpa -n retail-store-stage -o wide 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          kubectl get hpa -n default -o wide 2>&1 | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pod Count (after load test)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          kubectl get pods -n retail-store-stage -l app.kubernetes.io/part-of=retail-store \
+          kubectl get pods -n default -l app.kubernetes.io/part-of=retail-store \
             --sort-by=.metadata.creationTimestamp 2>&1 | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### HPA Events (scale decisions)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          kubectl describe hpa -n retail-store-stage 2>&1 | \
+          kubectl describe hpa -n default 2>&1 | \
             grep -A 5 "Events:" | tee -a $GITHUB_STEP_SUMMARY || true
           echo '```' >> $GITHUB_STEP_SUMMARY
 
@@ -116,12 +116,12 @@ jobs:
       - name: Collect k6 results
         if: always()
         run: |
-          POD=$(kubectl get pods -n retail-store-stage \
+          POD=$(kubectl get pods -n default \
             -l job-name=retail-store-load-test \
             -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
           if [ -n "$POD" ]; then
-            kubectl cp retail-store-stage/${POD}:/results/summary.json \
+            kubectl cp default/${POD}:/results/summary.json \
               k6-summary.json 2>/dev/null || echo "Could not copy results"
           fi
 

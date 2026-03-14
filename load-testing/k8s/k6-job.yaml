@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: retail-store-load-test
-  namespace: retail-store-stage
+  namespace: default
   labels:
     app.kubernetes.io/name: k6-load-test
     app.kubernetes.io/part-of: retail-store
@@ -27,7 +27,7 @@ spec:
             - /dev/stdout
           env:
             - name: BASE_URL
-              value: "http://ui.retail-store-stage.svc.cluster.local"
+              value: "http://ui.default.svc.cluster.local"
             - name: K6_PROMETHEUS_RW_SERVER_URL
               value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
             - name: K6_PROMETHEUS_RW_TREND_STATS

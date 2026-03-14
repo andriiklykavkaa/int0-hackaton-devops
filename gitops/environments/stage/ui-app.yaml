@@ -37,7 +37,7 @@ spec:
           value: http://catalog.retail-store-stage.svc.cluster.local
   destination:
     server: https://kubernetes.default.svc
-    namespace: retail-store-stage
+    namespace: default
   syncPolicy:
     automated:
       prune: true
