@@ -2,11 +2,9 @@ name: "Terraform CD (Prod)"
 
 on:
   workflow_run:
-      workflows: ["Terraform CI (Prod)"]
-      types:
-        - completed
-      branches:
-        - main
+    workflows: ["Terraform CI (Prod)"]
+    types:
+      - completed
 
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
@@ -14,8 +12,9 @@ env:
   
 jobs:
   apply-prod:
-    name: 'Terraform Apply (Prod)'
+    name: 'TF CD (Prod)'
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     defaults:
       run:
         working-directory: ./terraform/environments/prod
@@ -23,12 +22,9 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-
       - name: Terraform Init
         run: terraform init
-
       - name: Terraform Apply
         run: terraform apply -auto-approve
