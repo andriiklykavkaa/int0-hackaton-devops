@@ -6,8 +6,6 @@ module "core_infra" {
   env_name   = "stage" 
 }
 
-data "google_client_config" "default" {}
-
 provider "kubernetes" {
   host                   = "https://${module.core_infra.cluster_endpoint}"
   token                  = data.google_client_config.default.access_token
@@ -15,12 +13,14 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = "https://${module.core_infra.cluster_endpoint}"
     token                  = data.google_client_config.default.access_token
     cluster_ca_certificate = base64decode(module.core_infra.cluster_ca_certificate)
-  }  
+  }
 }
+
+data "google_client_config" "default" {}
 
 resource "kubernetes_namespace" "retail_store" {
   metadata {
@@ -35,7 +35,8 @@ resource "helm_release" "argocd" {
   namespace        = "argocd"
   create_namespace = true
   version          = "7.7.0"
-  set {
+
+  set = {
     name  = "server.service.type"
     value = "ClusterIP"
   }
