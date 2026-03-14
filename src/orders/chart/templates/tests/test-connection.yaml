@@ -7,9 +7,26 @@ metadata:
   annotations:
     "helm.sh/hook": test-success
 spec:
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: wget
       image: busybox
       command: ['wget']
-      args: ['{{ include "orders.fullname" . }}:{{ .Values.service.port }}/actuator/health/liveness']
+      args: ['-qO-', '{{ include "orders.fullname" . }}:{{ .Values.service.port }}/actuator/health/liveness']
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
   restartPolicy: Never
