@@ -11,7 +11,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "intfinall-tfstate-bucket"
+    bucket = "int-final-tfstate-bucket"
     prefix = "terraform/state"
   }
 }
