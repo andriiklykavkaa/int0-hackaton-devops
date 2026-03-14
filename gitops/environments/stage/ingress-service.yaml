@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: retail-store-ingress
-  namespace: squad-ecommerce-stage
+  namespace: retail-store-stage
   annotations:
     kubernetes.io/ingress.global-static-ip-name: "squad-stage-static-ip"
     networking.gke.io/managed-certificates: "stage-ssl-cert"
