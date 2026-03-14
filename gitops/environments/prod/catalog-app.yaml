@@ -1,0 +1,51 @@
+# Production environment — manual sync only (no automated)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
+    targetRevision: main
+    path: src/catalog/chart
+    helm:
+      valueFiles:
+        - values.yaml
+      parameters:
+        - name: image.repository
+          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-store/retail-store-sample-catalog
+        - name: image.tag
+          value: latest
+        - name: replicaCount
+          value: "2"
+        - name: autoscaling.enabled
+          value: "true"
+        - name: autoscaling.minReplicas
+          value: "2"
+        - name: autoscaling.maxReplicas
+          value: "10"
+        - name: autoscaling.targetCPUUtilizationPercentage
+          value: "60"
+        - name: app.persistence.provider
+          value: mysql
+        - name: podDisruptionBudget.enabled
+          value: "true"
+        - name: metrics.enabled
+          value: "true"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: retail-store-prod
+  # Production: NO automated sync — requires manual approval in Argo CD UI
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

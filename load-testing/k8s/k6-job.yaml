@@ -1,0 +1,61 @@
+# Runs the k6 load test as a Kubernetes Job inside the cluster.
+# This gives realistic in-cluster latency numbers and avoids NAT overhead.
+#
+# Usage:
+#   kubectl apply -f load-testing/k8s/k6-configmap.yaml
+#   kubectl apply -f load-testing/k8s/k6-job.yaml
+#   kubectl logs -f job/retail-store-load-test -n retail-store-stage
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: retail-store-load-test
+  namespace: retail-store-stage
+  labels:
+    app.kubernetes.io/name: k6-load-test
+    app.kubernetes.io/part-of: retail-store
+spec:
+  ttlSecondsAfterFinished: 3600   # Auto-clean after 1 hour
+  backoffLimit: 0                  # No retries — a failed test is a failed test
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k6-load-test
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:0.54.0
+          args:
+            - run
+            - /scripts/retail-store.js
+            - --out
+            - json=/results/summary.json
+            # Output metrics to stdout in real-time for kubectl logs
+            - --console-output
+            - /dev/stdout
+          env:
+            - name: BASE_URL
+              value: "http://ui.retail-store-stage.svc.cluster.local"
+            - name: K6_PROMETHEUS_RW_SERVER_URL
+              value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
+            - name: K6_PROMETHEUS_RW_TREND_STATS
+              value: "p(50),p(95),p(99),min,max"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: results
+              mountPath: /results
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: scripts
+          configMap:
+            name: k6-scripts
+        - name: results
+          emptyDir: {}

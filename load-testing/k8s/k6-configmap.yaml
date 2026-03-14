@@ -1,0 +1,17 @@
+# Stores the k6 script as a ConfigMap so the Job can mount it without
+# baking it into a custom image. Easy to update without rebuilding.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-scripts
+  namespace: retail-store-stage
+  labels:
+    app.kubernetes.io/name: k6-load-test
+    app.kubernetes.io/part-of: retail-store
+data:
+  retail-store.js: |
+    # This file is auto-populated by the CI workflow (load-test job).
+    # To update: edit load-testing/scripts/retail-store.js and re-apply.
+    # kubectl create configmap k6-scripts \
+    #   --from-file=retail-store.js=load-testing/scripts/retail-store.js \
+    #   -n retail-store-stage --dry-run=client -o yaml | kubectl apply -f -

@@ -1,0 +1,203 @@
+name: CI
+
+# Triggers on PR (build+scan only) and merge to main (build+scan+push)
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/catalog/**"
+      - "src/ui/**"
+      - ".github/workflows/ci.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/catalog/**"
+      - "src/ui/**"
+      - ".github/workflows/ci.yaml"
+
+permissions:
+  contents: read
+  # Required for Workload Identity Federation
+  id-token: write
+  # Required to upload SARIF to GitHub Security tab
+  security-events: write
+  # Required to post PR comments
+  pull-requests: write
+
+env:
+  # GCP region for Artifact Registry — set to europe-central2 (Warsaw) per hackathon requirement
+  GCP_REGION: europe-central2
+  # Full Artifact Registry hostname
+  GAR_HOST: europe-central2-docker.pkg.dev
+  # Set by Participant 1 Terraform output — override via repo secret GCP_PROJECT_ID
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  # Artifact Registry repo name created by Terraform
+  GAR_REPO: retail-store
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  # JOB 1: Build, scan and push — runs per service in parallel
+  # ─────────────────────────────────────────────────────────
+  build-and-scan:
+    name: "Build & Scan — ${{ matrix.service }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [catalog, ui]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker (Buildx)
+        uses: ./.github/actions/setup-docker
+
+      - name: Setup Env (mise + yarn)
+        uses: ./.github/actions/setup-env
+
+      # ── Image tagging strategy ────────────────────────────
+      # PR   → <sha>-pr<number>            (never pushed to registry)
+      # main → <sha> + latest              (pushed on merge)
+      - name: Compute image tags
+        id: tags
+        run: |
+          SHA="${{ github.sha }}"
+          SHORT_SHA="${SHA::7}"
+          REGISTRY="${{ env.GAR_HOST }}/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPO }}"
+          IMAGE="${REGISTRY}/retail-store-sample-${{ matrix.service }}"
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUM="${{ github.event.number }}"
+            echo "tags=${IMAGE}:${SHORT_SHA}-pr${PR_NUM}" >> $GITHUB_OUTPUT
+            echo "primary_tag=${IMAGE}:${SHORT_SHA}-pr${PR_NUM}" >> $GITHUB_OUTPUT
+            echo "push=false" >> $GITHUB_OUTPUT
+          else
+            echo "tags=${IMAGE}:${SHORT_SHA},${IMAGE}:latest" >> $GITHUB_OUTPUT
+            echo "primary_tag=${IMAGE}:${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "push=true" >> $GITHUB_OUTPUT
+          fi
+
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      # ── Authenticate to GCP via Workload Identity Federation ──
+      # No long-lived service account keys — uses OIDC token from GitHub Actions
+      # Participant 1 must configure the WIF pool and grant roles/artifactregistry.writer
+      - name: Authenticate to GCP (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GAR_HOST }} --quiet
+
+      # ── Build image (no push yet — Trivy scans local image first) ──
+      - name: Build image
+        run: |
+          yarn nx container ${{ matrix.service }} \
+            --tags "${{ steps.tags.outputs.primary_tag }}" \
+            --load true
+
+      # ── Security scanning with Trivy ──────────────────────
+      # Scans the freshly built local image before it ever touches the registry
+      - name: Trivy vulnerability scan (table — PR comment)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.tags.outputs.primary_tag }}
+          format: table
+          exit-code: "0"           # never block the build — report only
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          output: trivy-${{ matrix.service }}.txt
+
+      - name: Trivy scan (SARIF — GitHub Security tab)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.tags.outputs.primary_tag }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+      # Post scan summary as PR comment so reviewers see it inline
+      - name: Post Trivy report as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('trivy-${{ matrix.service }}.txt', 'utf8');
+            const body = `### Trivy Scan — \`${{ matrix.service }}\` (\`${{ steps.tags.outputs.short_sha }}\`)
+            <details><summary>Click to expand vulnerability report</summary>
+
+            \`\`\`
+            ${report.slice(0, 60000)}
+            \`\`\`
+            </details>`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      # Upload plain text report as artifact (for judges / audit trail)
+      - name: Upload Trivy report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report-${{ matrix.service }}-${{ steps.tags.outputs.short_sha }}
+          path: trivy-${{ matrix.service }}.txt
+          retention-days: 30
+
+      # ── Push image (only on merge to main) ────────────────
+      - name: Push image to Artifact Registry
+        if: steps.tags.outputs.push == 'true'
+        run: |
+          # Push all tags (sha + latest)
+          IFS=',' read -ra TAGS <<< "${{ steps.tags.outputs.tags }}"
+          for tag in "${TAGS[@]}"; do
+            docker tag "${{ steps.tags.outputs.primary_tag }}" "${tag}"
+            docker push "${tag}"
+          done
+
+      # ── GitOps: update image tag in gitops/environments/stage ──
+      # After a successful push, patch the SHA tag into the Argo CD Application
+      # so Argo CD detects drift and syncs immediately (image-tag-as-gitops-signal pattern)
+      - name: Update image tag in GitOps config
+        if: steps.tags.outputs.push == 'true'
+        run: |
+          SHORT_SHA="${{ steps.tags.outputs.short_sha }}"
+          SERVICE="${{ matrix.service }}"
+          FILE="gitops/environments/stage/${SERVICE}-app.yaml"
+
+          # Replace the image.tag parameter value with the new SHA
+          sed -i "s|value: .*  # CI updates this to git SHA on merge|value: ${SHORT_SHA}   # CI updates this to git SHA on merge|" "${FILE}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${FILE}"
+          git diff --cached --quiet || git commit -m "chore(gitops): update ${SERVICE} image to ${SHORT_SHA} [skip ci]"
+          git push
+
+      # ── Summary ───────────────────────────────────────────
+      - name: Job summary
+        run: |
+          echo "## CI Result — ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.tags.outputs.image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA tag | \`${{ steps.tags.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pushed | \`${{ steps.tags.outputs.push }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trivy report | see artifacts |" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,25 @@
+# App-of-Apps pattern: single entry point that registers all child Applications.
+# Argo CD watches this file — adding a new app here is all it takes to deploy it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: retail-store
+  namespace: argocd
+  # Cascade delete — removing this app removes all children
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
+    targetRevision: main
+    path: gitops/environments/stage   # Change to prod for production cluster
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true       # Remove resources deleted from git
+      selfHeal: true    # Revert manual kubectl changes automatically
+    syncOptions:
+      - CreateNamespace=true

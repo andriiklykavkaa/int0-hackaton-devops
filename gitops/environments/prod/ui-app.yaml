@@ -1,0 +1,52 @@
+# Production environment — manual sync only
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ui-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
+    targetRevision: main
+    path: src/ui/chart
+    helm:
+      valueFiles:
+        - values.yaml
+      parameters:
+        - name: image.repository
+          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-store/retail-store-sample-ui
+        - name: image.tag
+          value: latest
+        - name: replicaCount
+          value: "2"
+        - name: autoscaling.enabled
+          value: "true"
+        - name: autoscaling.minReplicas
+          value: "2"
+        - name: autoscaling.maxReplicas
+          value: "10"
+        - name: autoscaling.targetCPUUtilizationPercentage
+          value: "50"
+        - name: podDisruptionBudget.enabled
+          value: "true"
+        - name: metrics.enabled
+          value: "true"
+        - name: ingress.enabled
+          value: "true"
+        - name: app.endpoints.catalog
+          value: http://catalog.retail-store-prod.svc.cluster.local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: retail-store-prod
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Visible in Argo CD UI and useful for audit
+    app.kubernetes.io/component: catalog
+    app.kubernetes.io/part-of: retail-store
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
+    targetRevision: main
+    path: src/catalog/chart
+    helm:
+      # Values file is environment-specific — overridden per env via valueFiles
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: retail-store
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true   # Handles large CRDs and avoids annotation size limits
+  # Health check: only mark Healthy when all pods are Running
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # Ignore HPA-managed replica count drift

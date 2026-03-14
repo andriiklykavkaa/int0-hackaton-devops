@@ -39,4 +39,4 @@ screenshots
 !.yarn/plugins
 !.yarn/releases
 !.yarn/sdks
-!.yarn/versions
+!.yarn/versionsload-testing/results/*.json

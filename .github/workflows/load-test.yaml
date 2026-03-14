@@ -1,0 +1,178 @@
+name: Load Test
+
+# Triggered manually (for demo) or automatically after a successful deploy to stage
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Target URL (default: in-cluster via kubectl port-forward)"
+        required: false
+        default: ""
+      duration_minutes:
+        description: "Override test duration in minutes (leave empty for full scenario)"
+        required: false
+        default: ""
+  # Auto-trigger after CI pushes to main (deploy complete)
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  load-test:
+    name: "k6 Load Test + HPA Watch"
+    runs-on: ubuntu-latest
+    # Only run on successful CI (for workflow_run trigger)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: int-hackaton-uyak
+          location: europe-central2
+
+      # ── Verify HPA exists and autoscaling is enabled ───────────────
+      - name: Verify HPA configuration
+        run: |
+          echo "### HPA Status (before load test)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get hpa -n retail-store-stage 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          # Fail fast if HPA is not configured — test would prove nothing
+          kubectl get hpa -n retail-store-stage | grep -E "catalog|ui" || \
+            (echo "ERROR: HPA not found — set autoscaling.enabled=true in Helm values" && exit 1)
+
+      # ── Push k6 script into cluster as ConfigMap ───────────────────
+      - name: Deploy k6 script ConfigMap
+        run: |
+          kubectl create configmap k6-scripts \
+            --from-file=retail-store.js=load-testing/scripts/retail-store.js \
+            -n retail-store-stage \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # ── Run load test as a Kubernetes Job ─────────────────────────
+      - name: Run k6 load test (in-cluster Job)
+        run: |
+          # Delete previous job if exists
+          kubectl delete job retail-store-load-test -n retail-store-stage --ignore-not-found
+
+          kubectl apply -f load-testing/k8s/k6-job.yaml
+
+          echo "Load test job started. Waiting for completion..."
+          kubectl wait --for=condition=complete job/retail-store-load-test \
+            -n retail-store-stage --timeout=1800s &
+          WAIT_PID=$!
+
+          # Stream logs in real-time while waiting
+          sleep 5
+          kubectl logs -f job/retail-store-load-test -n retail-store-stage || true
+
+          wait $WAIT_PID
+          EXIT_CODE=$?
+
+          # Capture final job status for summary
+          kubectl get job retail-store-load-test -n retail-store-stage >> $GITHUB_STEP_SUMMARY
+
+          exit $EXIT_CODE
+
+      # ── Watch HPA during/after test ────────────────────────────────
+      - name: Capture HPA scale-out evidence
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### HPA Status (after load test)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get hpa -n retail-store-stage -o wide 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pod Count (after load test)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n retail-store-stage -l app.kubernetes.io/part-of=retail-store \
+            --sort-by=.metadata.creationTimestamp 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### HPA Events (scale decisions)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl describe hpa -n retail-store-stage 2>&1 | \
+            grep -A 5 "Events:" | tee -a $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      # ── Collect k6 results from pod ────────────────────────────────
+      - name: Collect k6 results
+        if: always()
+        run: |
+          POD=$(kubectl get pods -n retail-store-stage \
+            -l job-name=retail-store-load-test \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+          if [ -n "$POD" ]; then
+            kubectl cp retail-store-stage/${POD}:/results/summary.json \
+              k6-summary.json 2>/dev/null || echo "Could not copy results"
+          fi
+
+      - name: Upload k6 results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-load-test-results-${{ github.run_id }}
+          path: k6-summary.json
+          retention-days: 30
+
+      # ── Parse and display SLO results ─────────────────────────────
+      - name: Parse SLO results
+        if: always()
+        run: |
+          if [ -f k6-summary.json ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### SLO Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            python3 - <<'EOF'
+          import json, sys
+
+          with open("k6-summary.json") as f:
+            try:
+              # k6 JSON output is newline-delimited; grab last summary line
+              lines = [l for l in f if '"type":"Point"' not in l and l.strip()]
+              data = json.loads(lines[-1]) if lines else {}
+            except Exception as e:
+              print(f"Could not parse results: {e}")
+              sys.exit(0)
+
+          metrics = data.get("data", {}).get("metrics", {})
+
+          p95 = metrics.get("http_req_duration", {}).get("values", {}).get("p(95)", "N/A")
+          err = metrics.get("custom_error_rate", {}).get("values", {}).get("rate", "N/A")
+          rps = metrics.get("http_reqs", {}).get("values", {}).get("rate", "N/A")
+
+          p95_ok = isinstance(p95, float) and p95 < 500
+          err_ok = isinstance(err, float) and err < 0.01
+
+          summary = f"""| SLO | Target | Result | Status |
+          |-----|--------|--------|--------|
+          | Latency p95 | < 500ms | {f'{p95:.1f}ms' if isinstance(p95, float) else p95} | {'✅' if p95_ok else '❌'} |
+          | Error rate  | < 1%    | {f'{err*100:.2f}%' if isinstance(err, float) else err} | {'✅' if err_ok else '❌'} |
+          | Throughput  | —       | {f'{rps:.1f} req/s' if isinstance(rps, float) else rps} | ℹ️ |
+          """
+          print(summary)
+          EOF
+          fi

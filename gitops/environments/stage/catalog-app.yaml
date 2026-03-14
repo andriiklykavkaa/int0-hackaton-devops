@@ -1,0 +1,53 @@
+# Stage environment — Argo CD Application for catalog
+# This file is what the App-of-Apps watches. Update image.tag here to trigger a deploy.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog-stage
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
+    targetRevision: main
+    path: src/catalog/chart
+    helm:
+      valueFiles:
+        - values.yaml
+      # Environment-specific overrides — CI updates image.tag on every merge
+      parameters:
+        - name: image.repository
+          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-store/retail-store-sample-catalog
+        - name: image.tag
+          value: latest   # CI workflow updates this to the git SHA on merge
+        - name: replicaCount
+          value: "1"
+        - name: autoscaling.enabled
+          value: "true"
+        - name: autoscaling.minReplicas
+          value: "1"
+        - name: autoscaling.maxReplicas
+          value: "5"
+        - name: autoscaling.targetCPUUtilizationPercentage
+          value: "60"
+        - name: app.persistence.provider
+          value: in-memory   # Stage uses in-memory; prod uses mysql
+        - name: metrics.enabled
+          value: "true"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: retail-store-stage
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

@@ -6,7 +6,7 @@
       "plugin": "@nx-tools/nx-container",
       "options": {
         "defaultEngine": "docker",
-        "registry": "public.ecr.aws"
+        "registry": "europe-central2-docker.pkg.dev"
       }
     },
     "@nx-go/nx-go"
