@@ -5,11 +5,8 @@ on:
       workflows: ["Terraform CI"]
       types:
         - completed
-  push:
-    branches:
-      - main
-    paths:
-      - 'terraform/**'
+      branches:
+        - main
 
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
