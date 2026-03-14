@@ -16,6 +16,6 @@ provider "kubernetes" {
 
 resource "kubernetes_namespace" "retail_store" {
   metadata {
-    name = "retail-store-${core_infra.var.env_name}" 
+    name = "retail-store-prod" 
   }
 }
