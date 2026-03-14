@@ -22,15 +22,15 @@ PROMETHEUS_QUERIES = {
     "latency_p95": "retail:http_latency_p95_seconds5m",
     "pod_restarts": (
         'sum by (pod) (increase(kube_pod_container_status_restarts_total'
-        '{namespace="{namespace}"}[15m]))'
+        '{namespace="__NAMESPACE__"}[15m]))'
     ),
     "cpu_throttling": (
         'sum by (pod) (rate(container_cpu_cfs_throttled_periods_total'
-        '{namespace="{namespace}",container!=""}[5m])) / clamp_min(sum by (pod) '
-        '(rate(container_cpu_cfs_periods_total{namespace="{namespace}",container!=""}[5m])), 0.001)'
+        '{namespace="__NAMESPACE__",container!=""}[5m])) / clamp_min(sum by (pod) '
+        '(rate(container_cpu_cfs_periods_total{namespace="__NAMESPACE__",container!=""}[5m])), 0.001)'
     ),
-    "target_down": 'min by (job) (up{namespace="{namespace}"})',
-    "queue_backlog": 'sum(rabbitmq_queue_messages_ready{namespace="{namespace}"})',
+    "target_down": 'min by (job) (up{namespace="__NAMESPACE__"})',
+    "queue_backlog": 'sum(rabbitmq_queue_messages_ready{namespace="__NAMESPACE__"})',
 }
 
 
@@ -155,7 +155,7 @@ def collect_prometheus(namespace: str, base_url: str | None, mock_dir: Path | No
         return results
 
     for name, template in PROMETHEUS_QUERIES.items():
-        query = template.format(namespace=namespace)
+        query = template.replace("__NAMESPACE__", namespace)
         try:
             results[name] = query_prometheus(base_url, query)
         except Exception as exc:  # pragma: no cover - exercised via runtime
