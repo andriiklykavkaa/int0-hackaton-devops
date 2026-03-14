@@ -1,10 +1,6 @@
 name: "Terraform CD (Prod)"
 
 on:
-  workflow_run:
-      workflows: ["Terraform CI"]
-      types:
-        - completed
   release:
     types: [published]
 
