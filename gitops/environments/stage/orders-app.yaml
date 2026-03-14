@@ -1,8 +1,7 @@
-# Stage environment — Argo CD Application for ui
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ui-stage
+  name: orders-stage
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -11,31 +10,23 @@ spec:
   source:
     repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
     targetRevision: main
-    path: src/ui/chart
+    path: src/orders/chart
     helm:
       valueFiles:
         - values.yaml
       parameters:
         - name: image.repository
-          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-store/retail-store-sample-ui
+          value: europe-central2-docker.pkg.dev/PROJECT_ID/retail-images/retail-store-sample-orders
         - name: image.tag
           value: 6103dce   # CI updates this to git SHA on merge
-        - name: replicaCount
-          value: "1"
         - name: autoscaling.enabled
           value: "true"
         - name: autoscaling.minReplicas
           value: "1"
         - name: autoscaling.maxReplicas
           value: "5"
-        - name: autoscaling.targetCPUUtilizationPercentage
-          value: "50"
         - name: metrics.enabled
           value: "true"
-        - name: ingress.enabled
-          value: "true"
-        - name: app.endpoints.catalog
-          value: http://catalog.retail-store-stage.svc.cluster.local
   destination:
     server: https://kubernetes.default.svc
     namespace: retail-store-stage

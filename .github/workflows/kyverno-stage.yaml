@@ -1,0 +1,137 @@
+name: Kyverno Bootstrap And Stage Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "platform/kyverno/**"
+      - ".github/workflows/kyverno-stage.yaml"
+      - "src/ui/chart/values.yaml"
+      - "src/cart/chart/values.yaml"
+      - "src/catalog/chart/values.yaml"
+      - "src/checkout/chart/values.yaml"
+      - "src/orders/chart/values.yaml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  bootstrap-and-verify:
+    name: Bootstrap Kyverno And Verify Policies
+    runs-on: ubuntu-latest
+    env:
+      GKE_CLUSTER_NAME: squad-ecommerce-stage
+      GKE_LOCATION: europe-central2
+      KYVERNO_NAMESPACE: kyverno
+      KYVERNO_VERSION: v1.17.1
+      STAGE_NAMESPACE: retail-store-stage
+      TEST_NAMESPACE: retail-store-policy-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER_NAME }}
+          location: ${{ env.GKE_LOCATION }}
+
+      - name: Reconcile Kyverno installation
+        run: |
+          kubectl create namespace "${KYVERNO_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply \
+            --server-side \
+            --force-conflicts \
+            -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
+
+          kubectl wait --for=condition=Established crd/clusterpolicies.kyverno.io --timeout=180s
+          kubectl rollout status deployment/kyverno-admission-controller -n "${KYVERNO_NAMESPACE}" --timeout=300s
+          kubectl rollout status deployment/kyverno-background-controller -n "${KYVERNO_NAMESPACE}" --timeout=300s
+          kubectl rollout status deployment/kyverno-cleanup-controller -n "${KYVERNO_NAMESPACE}" --timeout=300s
+          kubectl rollout status deployment/kyverno-reports-controller -n "${KYVERNO_NAMESPACE}" --timeout=300s
+
+      - name: Apply Retail Store Kyverno policies
+        run: |
+          kubectl apply -f platform/kyverno/policies
+          kubectl get clusterpolicy \
+            retail-store-disallow-latest-tag \
+            retail-store-require-pod-hardening \
+            retail-store-require-resource-requests \
+            >> $GITHUB_STEP_SUMMARY
+
+      - name: Prepare temporary test namespace
+        run: |
+          kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found=true --wait=true
+          kubectl create namespace "${TEST_NAMESPACE}"
+
+      - name: Verify invalid manifests are rejected
+        run: |
+          set +e
+          kubectl apply -n "${TEST_NAMESPACE}" -f platform/kyverno/tests/invalid-latest-pod.yaml
+          INVALID_LATEST_EXIT=$?
+          kubectl apply -n "${TEST_NAMESPACE}" -f platform/kyverno/tests/invalid-security-pod.yaml
+          INVALID_SECURITY_EXIT=$?
+          set -e
+
+          if [ "${INVALID_LATEST_EXIT}" -eq 0 ]; then
+            echo "invalid-latest-pod was accepted but should have been rejected" >&2
+            exit 1
+          fi
+
+          if [ "${INVALID_SECURITY_EXIT}" -eq 0 ]; then
+            echo "invalid-security-pod was accepted but should have been rejected" >&2
+            exit 1
+          fi
+
+      - name: Verify valid manifest is accepted
+        run: |
+          kubectl apply -n "${TEST_NAMESPACE}" -f platform/kyverno/tests/valid-pod.yaml
+          kubectl get pod valid-kyverno-pod -n "${TEST_NAMESPACE}" >/dev/null
+
+      - name: Verify rendered service charts are accepted
+        run: |
+          for service in catalog cart checkout orders ui; do
+            release="kyverno-${service}-test"
+            chart_path="./src/${service}/chart"
+
+            # Cart chart lives under src/cart but the chart name is carts internally.
+            if [ "${service}" = "cart" ]; then
+              release="kyverno-carts-test"
+            fi
+
+            helm template "${release}" "${chart_path}" \
+              --namespace "${TEST_NAMESPACE}" \
+              --set fullnameOverride="${release}" \
+              | kubectl apply -n "${TEST_NAMESPACE}" -f -
+
+            kubectl get deployment "${release}" -n "${TEST_NAMESPACE}" >/dev/null
+          done
+
+      - name: Cleanup test namespace
+        if: always()
+        run: |
+          kubectl config current-context >/dev/null 2>&1 || exit 0
+          kubectl delete namespace "${TEST_NAMESPACE}" --ignore-not-found=true --wait=true
+
+      - name: Job summary
+        if: always()
+        run: |
+          echo "## Kyverno bootstrap and stage validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Kyverno ${KYVERNO_VERSION} reconciled into \`${KYVERNO_NAMESPACE}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Policies applied from \`platform/kyverno/policies\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Invalid manifests were expected to fail admission" >> $GITHUB_STEP_SUMMARY
+          echo "- Valid manifest was expected to pass admission" >> $GITHUB_STEP_SUMMARY
+          echo "- Rendered service charts were expected to pass admission" >> $GITHUB_STEP_SUMMARY
