@@ -1,12 +1,12 @@
-name: "Terraform CD (Prod)"
+name: "Terraform CI (Prod)"
 
 on:
-  workflow_run:
-      workflows: ["Terraform CI (Prod)"]
-      types:
-        - completed
-      branches:
-        - main
+  release:
+    types: [published]
+
+concurrency:
+  group: tf-prod-release
+  cancel-in-progress: false
 
 env:
   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
@@ -14,7 +14,7 @@ env:
   
 jobs:
   apply-prod:
-    name: 'Terraform Apply (Prod)'
+    name: 'Terraform Plan & Apply (Prod)'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,6 +29,9 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
+        
+      - name: Terraform Plan
+        run: terraform plan -no-color
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
