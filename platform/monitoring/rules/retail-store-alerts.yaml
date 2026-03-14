@@ -94,3 +94,66 @@ spec:
           annotations:
             summary: "Prometheus target down for {{ $labels.job }}"
             description: "A scraped Retail Store target has been down for more than 2 minutes."
+        - alert: RetailStoreHighCPUThrottling
+          expr: |
+            sum by (pod) (
+              rate(container_cpu_cfs_throttled_periods_total{namespace="retail-store-stage",container!=""}[5m])
+            )
+            /
+            clamp_min(
+              sum by (pod) (
+                rate(container_cpu_cfs_periods_total{namespace="retail-store-stage",container!=""}[5m])
+              ),
+              0.001
+            ) > 0.2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU throttling on {{ $labels.pod }}"
+            description: "CPU throttling ratio exceeded 20% for {{ $labels.pod }}."
+        - alert: RetailStorePodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="retail-store-stage"}[15m]) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod restarting frequently"
+            description: "{{ $labels.pod }} restarted more than twice in 15 minutes."
+        - alert: RetailStoreMySQLExporterDown
+          expr: |
+            mysql_up{namespace="retail-store-stage"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "MySQL exporter target down"
+            description: "MySQL metrics exporter cannot reach the database."
+        - alert: RetailStorePostgresExporterDown
+          expr: |
+            pg_up{namespace="retail-store-stage"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PostgreSQL exporter target down"
+            description: "PostgreSQL metrics exporter cannot reach the database."
+        - alert: RetailStoreRedisExporterDown
+          expr: |
+            redis_up{namespace="retail-store-stage"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Redis exporter target down"
+            description: "Redis metrics exporter cannot reach the cache."
+        - alert: RetailStoreRabbitMQQueueBacklogHigh
+          expr: |
+            sum(rabbitmq_queue_messages_ready{namespace="retail-store-stage"}) > 100
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "RabbitMQ backlog is growing"
+            description: "RabbitMQ has more than 100 ready messages waiting for consumers."

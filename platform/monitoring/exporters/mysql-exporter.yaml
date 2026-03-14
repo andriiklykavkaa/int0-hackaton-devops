@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retail-store-mysql-exporter
+  namespace: retail-store-stage
+  labels:
+    app.kubernetes.io/name: retail-store-mysql-exporter
+    app.kubernetes.io/part-of: retail-store
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: retail-store-mysql-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: retail-store-mysql-exporter
+        app.kubernetes.io/part-of: retail-store
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mysqld-exporter
+          image: prom/mysqld-exporter:v0.18.0
+          command:
+            - /bin/sh
+            - -ec
+            - exec /bin/mysqld_exporter --mysqld.address=__MYSQL_SERVICE__.__APP_NAMESPACE__.svc.cluster.local:3306 --mysqld.username="${MYSQLD_EXPORTER_USER}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          env:
+            - name: MYSQLD_EXPORTER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-db
+                  key: RETAIL_CATALOG_PERSISTENCE_USER
+            - name: MYSQLD_EXPORTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-db
+                  key: RETAIL_CATALOG_PERSISTENCE_PASSWORD
+          ports:
+            - name: metrics
+              containerPort: 9104
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: retail-store-mysql-exporter
+  namespace: retail-store-stage
+  labels:
+    app.kubernetes.io/name: retail-store-mysql-exporter
+    app.kubernetes.io/part-of: retail-store
+spec:
+  selector:
+    app.kubernetes.io/name: retail-store-mysql-exporter
+  ports:
+    - name: metrics
+      port: 9104
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: retail-store-mysql-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: retail-store
+spec:
+  namespaceSelector:
+    matchNames:
+      - retail-store-stage
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: retail-store-mysql-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s

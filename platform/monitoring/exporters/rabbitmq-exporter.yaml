@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retail-store-rabbitmq-exporter
+  namespace: retail-store-stage
+  labels:
+    app.kubernetes.io/name: retail-store-rabbitmq-exporter
+    app.kubernetes.io/part-of: retail-store
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: retail-store-rabbitmq-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: retail-store-rabbitmq-exporter
+        app.kubernetes.io/part-of: retail-store
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rabbitmq-exporter
+          image: ghcr.io/kbudde/rabbitmq_exporter:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          env:
+            - name: RABBIT_URL
+              value: http://__RABBITMQ_SERVICE__.__APP_NAMESPACE__.svc.cluster.local:15672
+            - name: RABBIT_USER
+              value: guest
+            - name: RABBIT_PASSWORD
+              value: guest
+            - name: PUBLISH_PORT
+              value: "9419"
+          ports:
+            - name: metrics
+              containerPort: 9419
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: retail-store-rabbitmq-exporter
+  namespace: retail-store-stage
+  labels:
+    app.kubernetes.io/name: retail-store-rabbitmq-exporter
+    app.kubernetes.io/part-of: retail-store
+spec:
+  selector:
+    app.kubernetes.io/name: retail-store-rabbitmq-exporter
+  ports:
+    - name: metrics
+      port: 9419
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: retail-store-rabbitmq-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: retail-store
+spec:
+  namespaceSelector:
+    matchNames:
+      - retail-store-stage
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: retail-store-rabbitmq-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s

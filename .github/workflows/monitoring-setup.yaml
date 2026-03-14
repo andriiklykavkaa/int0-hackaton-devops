@@ -100,9 +100,13 @@ jobs:
 
       - name: Render environment-specific monitoring resources
         run: |
-          mkdir -p /tmp/monitoring-manifests/servicemonitors /tmp/monitoring-manifests/rules /tmp/monitoring-manifests/dashboards
+          mkdir -p /tmp/monitoring-manifests/servicemonitors /tmp/monitoring-manifests/rules /tmp/monitoring-manifests/dashboards /tmp/monitoring-manifests/exporters
 
           APP_NAMESPACE="${{ steps.target.outputs.app_namespace }}"
+          ENVIRONMENT="${{ steps.target.outputs.environment }}"
+          CATALOG_RELEASE="catalog-${ENVIRONMENT}"
+          CHECKOUT_RELEASE="checkout-${ENVIRONMENT}"
+          ORDERS_RELEASE="orders-${ENVIRONMENT}"
 
           for file in platform/monitoring/servicemonitors/*.yaml; do
             sed "s/retail-store-stage/${APP_NAMESPACE}/g" "${file}" > "/tmp/monitoring-manifests/servicemonitors/$(basename "${file}")"
@@ -116,17 +120,52 @@ jobs:
             sed "s/retail-store-stage/${APP_NAMESPACE}/g" "${file}" > "/tmp/monitoring-manifests/dashboards/$(basename "${file}")"
           done
 
+          render_exporter() {
+            local source_file="$1"
+            local output_file="$2"
+
+            sed \
+              -e "s/retail-store-stage/${APP_NAMESPACE}/g" \
+              -e "s/__APP_NAMESPACE__/${APP_NAMESPACE}/g" \
+              -e "s/__MYSQL_SERVICE__/${CATALOG_RELEASE}-catalog-mysql/g" \
+              -e "s/__REDIS_SERVICE__/${CHECKOUT_RELEASE}-checkout-redis/g" \
+              -e "s/__POSTGRES_SERVICE__/${ORDERS_RELEASE}-orders-postgresql/g" \
+              -e "s/__RABBITMQ_SERVICE__/${ORDERS_RELEASE}-orders-rabbitmq/g" \
+              "${source_file}" > "${output_file}"
+          }
+
+          if kubectl get svc "${CATALOG_RELEASE}-catalog-mysql" -n "${APP_NAMESPACE}" >/dev/null 2>&1; then
+            render_exporter platform/monitoring/exporters/mysql-exporter.yaml /tmp/monitoring-manifests/exporters/mysql-exporter.yaml
+          fi
+
+          if kubectl get svc "${CHECKOUT_RELEASE}-checkout-redis" -n "${APP_NAMESPACE}" >/dev/null 2>&1; then
+            render_exporter platform/monitoring/exporters/redis-exporter.yaml /tmp/monitoring-manifests/exporters/redis-exporter.yaml
+          fi
+
+          if kubectl get svc "${ORDERS_RELEASE}-orders-postgresql" -n "${APP_NAMESPACE}" >/dev/null 2>&1; then
+            render_exporter platform/monitoring/exporters/postgres-exporter.yaml /tmp/monitoring-manifests/exporters/postgres-exporter.yaml
+          fi
+
+          if kubectl get svc "${ORDERS_RELEASE}-orders-rabbitmq" -n "${APP_NAMESPACE}" >/dev/null 2>&1; then
+            render_exporter platform/monitoring/exporters/rabbitmq-exporter.yaml /tmp/monitoring-manifests/exporters/rabbitmq-exporter.yaml
+          fi
+
       - name: Apply monitoring resources
         run: |
           kubectl apply -f /tmp/monitoring-manifests/servicemonitors
           kubectl apply -f /tmp/monitoring-manifests/rules
           kubectl apply -f /tmp/monitoring-manifests/dashboards
+          if find /tmp/monitoring-manifests/exporters -name '*.yaml' -print -quit | grep -q .; then
+            kubectl apply -f /tmp/monitoring-manifests/exporters
+          fi
 
       - name: Verify monitoring resources
         run: |
           kubectl get servicemonitor -n "${MONITORING_NAMESPACE}"
           kubectl get prometheusrule -n "${MONITORING_NAMESPACE}"
           kubectl get configmap retail-store-overview-dashboard -n "${MONITORING_NAMESPACE}"
+          kubectl get configmap retail-store-platform-dashboard -n "${MONITORING_NAMESPACE}"
+          kubectl get deployments -n "${{ steps.target.outputs.app_namespace }}" | grep 'retail-store-.*-exporter' || true
 
       - name: Job summary
         if: always()
@@ -138,4 +177,5 @@ jobs:
           echo "- App namespace: \`${{ steps.target.outputs.app_namespace }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Helm release: \`${HELM_RELEASE_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Values file: \`${{ steps.target.outputs.values_file }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- ServiceMonitors, PrometheusRule, and Grafana dashboard ConfigMap applied" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ServiceMonitors, PrometheusRule, and Grafana dashboard ConfigMaps applied" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Optional DB and queue exporters applied only when matching backend Services exist" >> "$GITHUB_STEP_SUMMARY"
