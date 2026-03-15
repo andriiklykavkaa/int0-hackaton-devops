@@ -29,10 +29,7 @@ data:
       "graphTooltip": 0,
       "panels": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "percentunit"
@@ -57,10 +54,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "bytes"
@@ -85,10 +79,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "percentunit"
@@ -113,10 +104,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "short"
@@ -141,10 +129,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "short"
@@ -179,10 +164,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "percentunit"
@@ -207,10 +189,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "short"
@@ -240,10 +219,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "short"
@@ -268,10 +244,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "binBps"
@@ -301,10 +274,7 @@ data:
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
+          "datasource": "Prometheus",
           "fieldConfig": {
             "defaults": {
               "unit": "percentunit"
