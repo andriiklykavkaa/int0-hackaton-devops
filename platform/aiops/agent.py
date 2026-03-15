@@ -15,6 +15,18 @@ from pathlib import Path
 from typing import Any
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+GRAFANA_DASHBOARDS = {
+    "overview": {
+        "uid": "retail-store-overview",
+        "slug": "retail-store-overview",
+        "title": "Retail Store Overview",
+    },
+    "platform": {
+        "uid": "retail-store-platform",
+        "slug": "retail-store-platform",
+        "title": "Retail Store Platform",
+    },
+}
 
 PROMETHEUS_QUERIES = {
     "request_rate": "sum(retail:http_request_rate5m)",
@@ -89,6 +101,11 @@ def parse_args() -> argparse.Namespace:
         help="Read collector inputs from a local directory instead of calling kubectl/Prometheus.",
     )
     parser.add_argument("--output", help="Write the full report JSON to this file.")
+    parser.add_argument(
+        "--grafana-base-url",
+        default=os.getenv("AIOPS_GRAFANA_BASE_URL", ""),
+        help="Optional Grafana base URL used to render dashboard links in the report.",
+    )
     parser.add_argument(
         "--enable-llm-analysis",
         action="store_true",
@@ -363,6 +380,24 @@ def build_log_context(pod_logs: dict[str, Any]) -> list[dict[str, str]]:
             entry["previous_excerpt"] = excerpt_log(previous)
         context.append(entry)
     return context
+
+
+def build_dashboard_links(grafana_base_url: str) -> dict[str, dict[str, str]]:
+    if not grafana_base_url:
+        return {}
+
+    base_url = grafana_base_url.rstrip("/")
+    links: dict[str, dict[str, str]] = {}
+    for name, dashboard in GRAFANA_DASHBOARDS.items():
+        url = (
+            f"{base_url}/d/{dashboard['uid']}/{dashboard['slug']}"
+            "?orgId=1&from=now-1h&to=now"
+        )
+        links[name] = {
+            "title": dashboard["title"],
+            "url": url,
+        }
+    return links
 
 
 def find_log_match(text: str, patterns: tuple[str, ...]) -> str | None:
@@ -759,6 +794,7 @@ def render_markdown(
     environment: str,
     namespace: str,
     summary: dict[str, Any],
+    dashboard_links: dict[str, dict[str, str]],
     pod_logs: dict[str, Any],
     llm_analysis: str | None,
 ) -> str:
@@ -790,6 +826,12 @@ def render_markdown(
             lines.append(f"- [{item['source']}/{item['collector']}] {item['details']}")
             if item.get("query"):
                 lines.append(f"  - Query: `{item['query']}`")
+        lines.append("")
+
+    if dashboard_links:
+        lines.extend(["## Dashboards", ""])
+        for item in dashboard_links.values():
+            lines.append(f"- {item['title']}: {item['url']}")
         lines.append("")
 
     if not summary["findings"]:
@@ -841,6 +883,7 @@ def main() -> int:
     collector_errors = collect_collector_errors(kubernetes, prometheus)
     collector_errors.extend(log_errors)
     total_collectors = len(kubernetes) + len(prometheus) + len(suspicious_pods)
+    dashboard_links = build_dashboard_links(args.grafana_base_url)
 
     findings = []
     findings.extend(analyze_pods(kubernetes.get("pods", {})))
@@ -854,6 +897,7 @@ def main() -> int:
         "environment": args.environment,
         "namespace": args.namespace,
         "summary": summarize(findings, collector_errors, total_collectors, pod_logs),
+        "dashboard_links": dashboard_links,
         "raw": {
             "kubernetes": kubernetes,
             "prometheus": prometheus,
@@ -883,6 +927,7 @@ def main() -> int:
                 args.environment,
                 args.namespace,
                 report["summary"],
+                dashboard_links,
                 pod_logs,
                 llm_analysis,
             )

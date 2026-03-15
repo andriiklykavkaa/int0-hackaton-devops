@@ -344,6 +344,7 @@ data:
         "to": "now"
       },
       "timezone": "",
+      "uid": "retail-store-platform",
       "title": "Retail Store Platform",
       "version": 1
     }

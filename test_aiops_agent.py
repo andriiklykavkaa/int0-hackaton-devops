@@ -238,6 +238,18 @@ class AIOpsAgentTests(unittest.TestCase):
         self.assertEqual({}, pod_logs)
         self.assertEqual([], collector_errors)
 
+    def test_build_dashboard_links_uses_stable_grafana_paths(self):
+        links = self.agent.build_dashboard_links("http://34.116.234.19/")
+
+        self.assertEqual(
+            "http://34.116.234.19/d/retail-store-overview/retail-store-overview?orgId=1&from=now-1h&to=now",
+            links["overview"]["url"],
+        )
+        self.assertEqual(
+            "http://34.116.234.19/d/retail-store-platform/retail-store-platform?orgId=1&from=now-1h&to=now",
+            links["platform"]["url"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

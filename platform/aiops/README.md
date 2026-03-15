@@ -20,7 +20,8 @@ Run against a live cluster:
 python3 platform/aiops/agent.py \
   --environment stage \
   --namespace retail-store-stage \
-  --prometheus-url http://localhost:9090
+  --prometheus-url http://localhost:9090 \
+  --grafana-base-url http://34.116.234.19
 ```
 
 Write the full JSON report:
@@ -99,6 +100,11 @@ Prometheus:
 - scrape target health
 - RabbitMQ backlog
 
+Optional dashboard links:
+
+- pass `--grafana-base-url` or `AIOPS_GRAFANA_BASE_URL`
+- the agent will render links for `Retail Store Overview` and `Retail Store Platform`
+
 ## Next Step
 
 The next iteration should extend the agent with stronger test coverage,
@@ -127,3 +133,8 @@ Optional LLM mode requires these GitHub secrets:
 Optional LLM tuning:
 
 - `AIOPS_OPENAI_MAX_TOKENS`
+
+Optional dashboard link configuration:
+
+- set the workflow input `grafana_base_url`
+- or pass `AIOPS_GRAFANA_BASE_URL` when running locally

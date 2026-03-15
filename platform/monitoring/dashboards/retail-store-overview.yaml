@@ -204,6 +204,7 @@ data:
         "to": "now"
       },
       "timezone": "",
+      "uid": "retail-store-overview",
       "title": "Retail Store Overview",
       "version": 1
     }
