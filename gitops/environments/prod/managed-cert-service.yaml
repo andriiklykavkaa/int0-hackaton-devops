@@ -1,0 +1,8 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: prod-ssl-cert
+  namespace: retail-store-prod
+spec:
+  domains:
+    - "34.54.183.106.nip.io"

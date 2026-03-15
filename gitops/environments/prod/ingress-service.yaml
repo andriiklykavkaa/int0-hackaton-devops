@@ -5,13 +5,14 @@ metadata:
   namespace: squad-ecomerce-prod
   annotations:
     kubernetes.io/ingress.global-static-ip-name: "squad-prod-static-ip"
+    networking.gke.io/managed-certificates: "prod-ssl-cert"
 spec:
   rules:
-  - host: "PLACEHOLDER" 
+  - host: "34.54.183.106.nip.io" 
     http:
       paths:
-      - path: /
-        pathType: Prefix
+      - path: /*
+        pathType: ImplementationSpecific
         backend:
           service:
             name: ui-prod

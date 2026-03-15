@@ -1,8 +1,7 @@
-# App-of-Apps pattern: single entry point that registers all child Applications.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: retail-store
+  name: retail-store-stage-argocd
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -12,6 +11,31 @@ spec:
     repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
     targetRevision: main
     path: gitops/environments/stage
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+
+
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: retail-store-prod-argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/andriiklykavkaa/int0-hackaton-devops.git
+    targetRevision: main
+    path: gitops/environments/prod
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
