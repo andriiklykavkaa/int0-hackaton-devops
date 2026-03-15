@@ -18,7 +18,7 @@ spec:
         - name: image.repository
           value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-images-prod/retail-store-sample-catalog
         - name: image.tag
-          value: latest
+          value: 44d010f
         - name: replicaCount
           value: "2"
         - name: autoscaling.enabled
@@ -39,6 +39,9 @@ spec:
     server: https://kubernetes.default.svc
     namespace: retail-store-prod
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
