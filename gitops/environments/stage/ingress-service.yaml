@@ -15,6 +15,6 @@ spec:
         pathType: ImplementationSpecific
         backend:
           service:
-            name: ui
+            name: ui-stage
             port:
               number: 8080
