@@ -18,7 +18,7 @@ spec:
         - name: image.repository
           value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-images-stage/retail-store-sample-orders
         - name: image.tag
-          value: 44d010f
+          value: 309c5cd
         - name: autoscaling.enabled
           value: "true"
         - name: autoscaling.minReplicas
