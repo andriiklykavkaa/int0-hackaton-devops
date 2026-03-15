@@ -121,7 +121,7 @@ jobs:
             -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
           if [ -n "$POD" ]; then
-            kubectl cp default/${POD}:/results/summary.json \
+            kubectl cp retail-store-stage/${POD}:/results/summary.json \
               k6-summary.json 2>/dev/null || echo "Could not copy results"
           fi
 

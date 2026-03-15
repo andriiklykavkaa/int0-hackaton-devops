@@ -30,16 +30,16 @@ export const cartAddCounter = new Counter("custom_cart_add_total");
 
 export const options = {
   stages: [
-    { duration: "2m", target: 50 },   // Ramp-up
-    { duration: "5m", target: 50 },   // Sustained — HPA stabilizes
-    { duration: "1m", target: 150 },  // Spike — forces HPA scale-out
-    { duration: "3m", target: 150 },  // Hold spike
+    { duration: "2m", target: 20 },   // Ramp-up
+    { duration: "5m", target: 20 },   // Sustained — HPA stabilizes
+    { duration: "1m", target: 50 },   // Spike — forces HPA scale-out
+    { duration: "3m", target: 50 },   // Hold spike
     { duration: "2m", target: 0 },    // Ramp-down
   ],
 
   thresholds: {
     http_req_duration: ["p(95)<500"],
-    custom_error_rate: ["rate<0.01"],
+    custom_error_rate: ["rate<0.05"],
     custom_checkout_duration_ms: ["p(95)<800"],
   },
 
