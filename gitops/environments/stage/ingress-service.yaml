@@ -17,4 +17,4 @@ spec:
           service:
             name: ui-stage
             port:
-              number: 8080
+              number: 80
