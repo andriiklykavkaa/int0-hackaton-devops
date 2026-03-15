@@ -18,7 +18,7 @@ spec:
         - name: image.repository
           value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-images-stage/retail-store-sample-cart
         - name: image.tag
-          value: a7c747a
+          value: 4c61760
         - name: autoscaling.enabled
           value: "true"
         - name: autoscaling.minReplicas
