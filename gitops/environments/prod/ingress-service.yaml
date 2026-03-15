@@ -7,13 +7,13 @@ metadata:
     kubernetes.io/ingress.global-static-ip-name: "squad-prod-static-ip"
 spec:
   rules:
-  - host: PLACEHOLDER" 
+  - host: "PLACEHOLDER" 
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: ui
+            name: ui-prod
             port:
-              number: 8080
+              number: 80
