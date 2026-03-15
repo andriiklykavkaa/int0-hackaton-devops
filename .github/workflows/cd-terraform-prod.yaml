@@ -28,3 +28,19 @@ jobs:
         run: terraform init
       - name: Terraform Apply
         run: terraform apply -auto-approve
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Get GKE Credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: squad-ecommerce-prod
+          location: europe-central2
+          project_id: ${{ env.TF_VAR_project_id }}
+
+      - name: Deploy App of Apps
+        run: |
+          kubectl apply -f ../../../gitops/argocd/app-of-apps-prod.yaml -n argocd
