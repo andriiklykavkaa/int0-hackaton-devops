@@ -27,6 +27,12 @@ spec:
           value: "5"
         - name: metrics.enabled
           value: "true"
+        - name: app.persistence.provider
+          value: postgres
+        - name: postgresql.create
+          value: "true"
+        - name: postgresql.persistentVolume.enabled
+          value: "true"
   destination:
     server: https://kubernetes.default.svc
     namespace: retail-store-stage
