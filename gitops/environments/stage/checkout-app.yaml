@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: checkout-prod
+  name: checkout-stage
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -16,7 +16,7 @@ spec:
         - values.yaml
       parameters:
         - name: image.repository
-          value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-images-prod/retail-store-sample-checkout
+          value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-images-stage/retail-store-sample-checkout
         - name: image.tag
           value: 44d010f
         - name: autoscaling.enabled
@@ -29,7 +29,7 @@ spec:
           value: "true"
   destination:
     server: https://kubernetes.default.svc
-    namespace: retail-store-prod
+    namespace: retail-store-stage
   syncPolicy:
     automated:
       prune: true

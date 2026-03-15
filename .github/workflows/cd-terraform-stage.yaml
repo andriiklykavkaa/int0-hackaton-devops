@@ -47,4 +47,4 @@ jobs:
 
       - name: Deploy App of Apps
         run: |
-          kubectl apply -f ../../../gitops/argocd/app-of-apps.yaml -n argocd
+          kubectl apply -f ../../../gitops/argocd/app-of-apps-stage.yaml -n argocd
