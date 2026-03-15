@@ -1,8 +1,19 @@
 name: Orders PostgreSQL Disaster Recovery
 
 on:
+  schedule:
+    - cron: "0 3 * * *"
+    - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: stage
+        type: choice
+        options:
+          - stage
+          - prod
       action:
         description: "Backup only or backup plus restore validation"
         required: true
@@ -11,15 +22,15 @@ on:
         options:
           - backup-and-restore
           - backup-only
-      namespace:
-        description: "Target namespace"
-        required: true
-        default: retail-store-stage
-        type: string
       validation_db:
         description: "Scratch database used for restore validation"
         required: true
         default: orders_restore_validation
+        type: string
+      backup_bucket:
+        description: "Optional GCS bucket or gs:// URI prefix for backup retention"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -33,15 +44,73 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve workflow parameters
+        id: params
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          ACTION="${{ github.event.inputs.action }}"
+          VALIDATION_DB="${{ github.event.inputs.validation_db }}"
+          BACKUP_BUCKET="${{ github.event.inputs.backup_bucket }}"
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${{ github.event.schedule }}" = "0 4 * * *" ]; then
+              ENVIRONMENT="prod"
+            else
+              ENVIRONMENT="stage"
+            fi
+          fi
+
+          if [ -z "$ENVIRONMENT" ]; then
+            ENVIRONMENT="stage"
+          fi
+
+          if [ "$ENVIRONMENT" = "prod" ]; then
+            CLUSTER_NAME="squad-ecommerce-prod"
+            NAMESPACE="retail-store-prod"
+          else
+            CLUSTER_NAME="squad-ecommerce-stage"
+            NAMESPACE="retail-store-stage"
+          fi
+
+          if [ -z "$ACTION" ]; then
+            ACTION="backup-and-restore"
+          fi
+
+          if [ -z "$VALIDATION_DB" ]; then
+            VALIDATION_DB="orders_restore_validation"
+          fi
+
+          if [ -z "$BACKUP_BUCKET" ]; then
+            BACKUP_BUCKET="${{ secrets.DR_GCS_BUCKET }}"
+          fi
+
+          GCS_BACKUP_URI=""
+          if [ -n "$BACKUP_BUCKET" ]; then
+            if [[ "$BACKUP_BUCKET" != gs://* ]]; then
+              BACKUP_BUCKET="gs://${BACKUP_BUCKET}"
+            fi
+            GCS_BACKUP_URI="${BACKUP_BUCKET%/}/orders-postgres/${NAMESPACE}"
+          fi
+
+          echo "environment=${ENVIRONMENT}" >> "$GITHUB_OUTPUT"
+          echo "cluster_name=${CLUSTER_NAME}" >> "$GITHUB_OUTPUT"
+          echo "action=${ACTION}" >> "$GITHUB_OUTPUT"
+          echo "namespace=${NAMESPACE}" >> "$GITHUB_OUTPUT"
+          echo "validation_db=${VALIDATION_DB}" >> "$GITHUB_OUTPUT"
+          echo "gcs_backup_uri=${GCS_BACKUP_URI}" >> "$GITHUB_OUTPUT"
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: squad-ecommerce-stage
+          cluster_name: ${{ steps.params.outputs.cluster_name }}
           location: europe-central2
 
       - name: Run orders PostgreSQL DR workflow
@@ -49,12 +118,19 @@ jobs:
           BACKUP_FILE="/tmp/orders-postgres-${{ github.run_id }}.dump"
           METADATA_FILE="/tmp/orders-postgres-dr.env"
 
-          bash platform/disaster-recovery/orders-postgres-dr.sh \
-            --action "${{ github.event.inputs.action }}" \
-            --namespace "${{ github.event.inputs.namespace }}" \
-            --validation-db "${{ github.event.inputs.validation_db }}" \
-            --backup-file "${BACKUP_FILE}" \
+          ARGS=(
+            --action "${{ steps.params.outputs.action }}"
+            --namespace "${{ steps.params.outputs.namespace }}"
+            --validation-db "${{ steps.params.outputs.validation_db }}"
+            --backup-file "${BACKUP_FILE}"
             --metadata-output "${METADATA_FILE}"
+          )
+
+          if [ -n "${{ steps.params.outputs.gcs_backup_uri }}" ]; then
+            ARGS+=(--gcs-backup-uri "${{ steps.params.outputs.gcs_backup_uri }}")
+          fi
+
+          bash platform/disaster-recovery/orders-postgres-dr.sh "${ARGS[@]}"
 
       - name: Publish DR summary
         if: always()
@@ -65,20 +141,31 @@ jobs:
 
           echo "## Orders PostgreSQL DR Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Namespace: \`${NAMESPACE:-${{ github.event.inputs.namespace }}}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Action: \`${ACTION:-${{ github.event.inputs.action }}}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: \`${{ steps.params.outputs.environment }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Cluster: \`${{ steps.params.outputs.cluster_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Namespace: \`${NAMESPACE:-${{ steps.params.outputs.namespace }}}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Action: \`${ACTION:-${{ steps.params.outputs.action }}}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PostgreSQL pod: \`${POD_NAME:-not-resolved}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Restore target pod: \`${RESTORE_POD_NAME:-not-created}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source database: \`${DATABASE_NAME:-orders}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Backup file: \`${BACKUP_FILE:-not-created}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Backup size: \`${BACKUP_SIZE_BYTES:-0}\` bytes" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA256: \`${CHECKSUM_SHA256:-not-computed}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backup uploaded: \`${UPLOADED_BACKUP_URI:-not-configured}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checksum uploaded: \`${UPLOADED_CHECKSUM_URI:-not-configured}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Runtime: \`${DURATION_SECONDS:-0}\` seconds" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source rows in \`orders\`: \`${SOURCE_ORDERS_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source rows in \`order_items\`: \`${SOURCE_ORDER_ITEMS_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source rows in \`shipping_addresses\`: \`${SOURCE_SHIPPING_ADDRESSES_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "${ACTION:-${{ github.event.inputs.action }}}" = "backup-and-restore" ]; then
-            echo "- Validation database: \`${VALIDATION_DB:-${{ github.event.inputs.validation_db }}}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${ACTION:-${{ steps.params.outputs.action }}}" = "backup-and-restore" ]; then
+            echo "- Validation database: \`${VALIDATION_DB:-${{ steps.params.outputs.validation_db }}}\`" >> "$GITHUB_STEP_SUMMARY"
             echo "- Restore verified: \`${RESTORE_VERIFIED:-false}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Restored schema tables: \`${TABLE_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Restored rows in \`orders\`: \`${ORDERS_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Restored rows in \`order_items\`: \`${ORDER_ITEMS_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Restored rows in \`shipping_addresses\`: \`${SHIPPING_ADDRESSES_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Row counts match source: \`${ROW_COUNTS_MATCH:-false}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Restored schema tables: \`${RESTORED_TABLE_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Restored rows in \`orders\`: \`${RESTORED_ORDERS_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Restored rows in \`order_items\`: \`${RESTORED_ORDER_ITEMS_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Restored rows in \`shipping_addresses\`: \`${RESTORED_SHIPPING_ADDRESSES_COUNT:-0}\`" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload DR artifacts
@@ -88,5 +175,6 @@ jobs:
           name: orders-postgres-dr-${{ github.run_id }}
           path: |
             /tmp/orders-postgres-*.dump
+            /tmp/orders-postgres-*.dump.sha256
             /tmp/orders-postgres-dr.env
           retention-days: 14
