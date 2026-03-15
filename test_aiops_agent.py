@@ -220,6 +220,24 @@ class AIOpsAgentTests(unittest.TestCase):
         self.assertEqual(30, captured["timeout"])
         self.assertEqual(300, captured["payload"]["max_tokens"])
 
+    def test_collect_pod_logs_ignores_waiting_to_start_errors(self):
+        suspicious_pods = {"orders-stage-123": True}
+        error_message = (
+            'Error from server (BadRequest): container "orders" in pod "orders-stage-123" '
+            "is waiting to start: trying and failing to pull image"
+        )
+
+        with mock.patch.object(self.agent, "run_kubectl_text", side_effect=RuntimeError(error_message)):
+            pod_logs, collector_errors = self.agent.collect_pod_logs(
+                "retail-store-stage",
+                suspicious_pods,
+                None,
+                200,
+            )
+
+        self.assertEqual({}, pod_logs)
+        self.assertEqual([], collector_errors)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -271,7 +271,20 @@ def should_ignore_previous_logs_error(message: str) -> bool:
     return (
         "previous terminated container" in lowered
         or "not found" in lowered
+        or should_ignore_current_logs_error(message)
         or "previous terminated container" in compact_error_message(message).lower()
+    )
+
+
+def should_ignore_current_logs_error(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "containercreating" in lowered
+        or "pod initializing" in lowered
+        or "container is waiting to start" in lowered
+        or "trying and failing to pull image" in lowered
+        or "imagepullbackoff" in lowered
+        or "errimagepull" in lowered
     )
 
 
@@ -297,13 +310,14 @@ def collect_pod_logs(
                 ["logs", pod_name, "--all-containers=true", f"--tail={log_tail}"],
             )
         except Exception as exc:  # pragma: no cover - exercised via runtime
-            collector_errors.append(
-                CollectorError(
-                    source="kubernetes",
-                    collector=f"logs/{pod_name}",
-                    details=compact_error_message(str(exc)),
+            if not should_ignore_current_logs_error(str(exc)):
+                collector_errors.append(
+                    CollectorError(
+                        source="kubernetes",
+                        collector=f"logs/{pod_name}",
+                        details=compact_error_message(str(exc)),
+                    )
                 )
-            )
 
         if include_previous:
             try:
