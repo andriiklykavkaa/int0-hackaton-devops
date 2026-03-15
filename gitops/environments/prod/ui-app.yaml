@@ -36,7 +36,13 @@ spec:
         - name: ingress.enabled
           value: "true"
         - name: app.endpoints.catalog
-          value: http://catalog.retail-store-prod.svc.cluster.local
+          value: "http://catalog-prod:80"
+        - name: app.endpoints.carts
+          value: "http://cart-prod-carts:80"
+        - name: app.endpoints.orders
+          value: "http://orders-prod:80"
+        - name: app.endpoints.checkout
+          value: "http://checkout-prod:80"
   destination:
     server: https://kubernetes.default.svc
     namespace: retail-store-prod

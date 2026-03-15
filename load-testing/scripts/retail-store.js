@@ -48,13 +48,8 @@ export const options = {
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8888";
 
-const PRODUCT_IDS = [
-  "6d62d909-f957-430e-8689-b5129c0bb75e",
-  "a0a4f044-b040-410d-8ead-4de0446aec7e",
-  "808a2de1-1aaa-4c25-a9b9-6612e8f29a38",
-  "510a0d7e-8e83-4193-b483-e27e09ddc34f",
-  "ee3715be-b4ba-11ea-b3de-0242ac130004",
-];
+// Populated dynamically from catalog API in setup()
+let PRODUCT_IDS = [];
 
 function request(method, url, body, params) {
   const res = method === "POST"
@@ -68,7 +63,8 @@ function request(method, url, body, params) {
   return res;
 }
 
-export default function () {
+export default function (data) {
+  const productIds = data.productIds || [];
   const params = {
     headers: { "Accept": "text/html,application/json" },
     timeout: "10s",
@@ -84,18 +80,20 @@ export default function () {
 
     request("GET", `${BASE_URL}/catalog`, null, params);
 
-    const productId = randomItem(PRODUCT_IDS);
-    request("GET", `${BASE_URL}/catalog/${productId}`, null, params);
+    if (productIds.length > 0) {
+      const productId = randomItem(productIds);
+      request("GET", `${BASE_URL}/catalog/${productId}`, null, params);
+    }
 
     catalogDuration.add(Date.now() - startTime);
     sleep(1);
   });
 
   group("cart", () => {
-    const productId = randomItem(PRODUCT_IDS);
-    const res = request("POST", `${BASE_URL}/cart`, {
-      productId: productId,
-    }, params);
+    const productId = productIds.length > 0 ? randomItem(productIds) : null;
+    const res = productId
+      ? request("POST", `${BASE_URL}/cart`, { productId: productId }, params)
+      : { status: 0 };
 
     if (res.status === 200 || res.status === 201) {
       cartAddCounter.add(1);
@@ -132,11 +130,29 @@ export default function () {
 }
 
 export function setup() {
-  const res = http.get(`${BASE_URL}/actuator/health`);
-  if (res.status !== 200) {
-    console.warn(`Health check returned ${res.status} — app may not be ready`);
+  const healthRes = http.get(`${BASE_URL}/actuator/health`);
+  if (healthRes.status !== 200) {
+    console.warn(`Health check returned ${healthRes.status} — app may not be ready`);
   }
-  return { baseUrl: BASE_URL };
+
+  // Fetch real product IDs from catalog
+  const catalogRes = http.get(`${BASE_URL}/catalog`, {
+    headers: { Accept: "application/json" },
+  });
+  let productIds = [];
+  if (catalogRes.status === 200) {
+    try {
+      const products = JSON.parse(catalogRes.body);
+      productIds = products.map((p) => p.id).filter(Boolean);
+      console.log(`Discovered ${productIds.length} products from catalog`);
+    } catch (e) {
+      console.warn(`Could not parse catalog response: ${e}`);
+    }
+  }
+  if (productIds.length === 0) {
+    console.warn("No products discovered — catalog detail and cart tests will fail");
+  }
+  return { baseUrl: BASE_URL, productIds: productIds };
 }
 
 export function teardown(data) {
