@@ -158,7 +158,7 @@ jobs:
           SERVICE="${{ matrix.service }}"
           FILE="gitops/environments/stage/${SERVICE}-app.yaml"
 
-          sed -i "s|value: .*  # CI updates this to git SHA on merge|value: ${SHORT_SHA}   # CI updates this to git SHA on merge|" "${FILE}"
+          sed -i "s|value: [a-f0-9]\{7\}|value: ${SHORT_SHA}|" "${FILE}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
