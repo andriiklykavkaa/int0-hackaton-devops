@@ -71,6 +71,13 @@ class CollectorError:
     query: str | None = None
 
 
+@dataclass
+class LogTarget:
+    pod_name: str
+    include_previous: bool
+    selector_labels: dict[str, str]
+
+
 LOG_PATTERNS = [
     (
         "critical",
@@ -250,8 +257,47 @@ def needs_previous_logs(pod: dict[str, Any]) -> bool:
     return False
 
 
-def detect_suspicious_pods(pods: dict[str, Any], prometheus: dict[str, Any]) -> dict[str, bool]:
-    suspicious: dict[str, bool] = {}
+def pod_name_map(pods: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        pod.get("metadata", {}).get("name"): pod
+        for pod in pods.get("items", [])
+        if pod.get("metadata", {}).get("name")
+    }
+
+
+def select_log_target_labels(pod: dict[str, Any]) -> dict[str, str]:
+    labels = pod.get("metadata", {}).get("labels", {})
+    keys = (
+        "app.kubernetes.io/name",
+        "app.kubernetes.io/instance",
+        "app.kubernetes.io/component",
+        "app.kubernetes.io/part-of",
+    )
+    return {key: labels[key] for key in keys if labels.get(key)}
+
+
+def upsert_log_target(
+    targets: dict[str, LogTarget],
+    pod_name: str,
+    include_previous: bool,
+    selector_labels: dict[str, str],
+) -> None:
+    existing = targets.get(pod_name)
+    if existing:
+        existing.include_previous = existing.include_previous or include_previous
+        if not existing.selector_labels and selector_labels:
+            existing.selector_labels = selector_labels
+        return
+    targets[pod_name] = LogTarget(
+        pod_name=pod_name,
+        include_previous=include_previous,
+        selector_labels=selector_labels,
+    )
+
+
+def detect_suspicious_pods(pods: dict[str, Any], prometheus: dict[str, Any]) -> list[LogTarget]:
+    suspicious: dict[str, LogTarget] = {}
+    current_pods = pod_name_map(pods)
 
     for pod in pods.get("items", []):
         name = pod.get("metadata", {}).get("name")
@@ -264,16 +310,27 @@ def detect_suspicious_pods(pods: dict[str, Any], prometheus: dict[str, Any]) -> 
         has_restarts = any(status.get("restartCount", 0) > 0 for status in container_statuses)
 
         if phase != "Running" or has_waiting_container or has_unready_container or has_restarts:
-            suspicious[name] = needs_previous_logs(pod)
+            upsert_log_target(
+                suspicious,
+                name,
+                needs_previous_logs(pod),
+                select_log_target_labels(pod),
+            )
 
     for result in prometheus.get("pod_restarts", {}).get("data", {}).get("result", []):
         value = float_value(result)
         if value is not None and value > 2:
             pod_name = result.get("metric", {}).get("pod")
             if pod_name:
-                suspicious[pod_name] = True
+                pod = current_pods.get(pod_name, {})
+                upsert_log_target(
+                    suspicious,
+                    pod_name,
+                    True,
+                    select_log_target_labels(pod) if pod else {},
+                )
 
-    return suspicious
+    return list(suspicious.values())
 
 
 def load_mock_logs(mock_dir: Path | None) -> dict[str, Any]:
@@ -293,6 +350,11 @@ def should_ignore_previous_logs_error(message: str) -> bool:
     )
 
 
+def is_pod_not_found_error(message: str) -> bool:
+    lowered = message.lower()
+    return "error from server (notfound)" in lowered or ("pods \"" in lowered and "\" not found" in lowered)
+
+
 def should_ignore_current_logs_error(message: str) -> bool:
     lowered = message.lower()
     return (
@@ -305,42 +367,87 @@ def should_ignore_current_logs_error(message: str) -> bool:
     )
 
 
-def collect_pod_logs(
+def candidate_matches_labels(pod: dict[str, Any], selector_labels: dict[str, str]) -> bool:
+    if not selector_labels:
+        return False
+    labels = pod.get("metadata", {}).get("labels", {})
+    return all(labels.get(key) == value for key, value in selector_labels.items())
+
+
+def log_candidate_score(pod: dict[str, Any]) -> tuple[int, int, int, str]:
+    statuses = pod.get("status", {}).get("containerStatuses", [])
+    has_waiting = int(any(status.get("state", {}).get("waiting") for status in statuses))
+    has_unready = int(any(not status.get("ready", True) for status in statuses))
+    restarts = sum(status.get("restartCount", 0) for status in statuses)
+    created = pod.get("metadata", {}).get("creationTimestamp", "")
+    return (has_waiting, has_unready, restarts, created)
+
+
+def refresh_live_pods(namespace: str, fallback_pods: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    try:
+        return pod_name_map(run_kubectl_json(namespace, ["get", "pods"]))
+    except Exception:
+        return pod_name_map(fallback_pods)
+
+
+def resolve_log_target(
+    target: LogTarget,
+    live_pods: dict[str, dict[str, Any]],
+    excluded_pods: set[str] | None = None,
+) -> str | None:
+    excluded = excluded_pods or set()
+    if target.pod_name in live_pods and target.pod_name not in excluded:
+        return target.pod_name
+    candidates = [
+        pod for name, pod in live_pods.items()
+        if name not in excluded and candidate_matches_labels(pod, target.selector_labels)
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=log_candidate_score).get("metadata", {}).get("name")
+
+
+def fetch_logs_with_retries(
     namespace: str,
-    suspicious_pods: dict[str, bool],
-    mock_dir: Path | None,
+    target: LogTarget,
+    live_pods: dict[str, dict[str, Any]],
     log_tail: int,
-) -> tuple[dict[str, Any], list[CollectorError]]:
-    mock_logs = load_mock_logs(mock_dir)
-    collected: dict[str, Any] = {}
+) -> tuple[dict[str, str], list[CollectorError]]:
+    pod_logs: dict[str, str] = {}
     collector_errors: list[CollectorError] = []
+    attempted_pods: set[str] = set()
+    resolved_name = resolve_log_target(target, live_pods)
 
-    for pod_name, include_previous in suspicious_pods.items():
-        if pod_name in mock_logs:
-            collected[pod_name] = mock_logs[pod_name]
-            continue
-
-        pod_logs: dict[str, str] = {}
+    while resolved_name:
+        attempted_pods.add(resolved_name)
         try:
             pod_logs["current"] = run_kubectl_text(
                 namespace,
-                ["logs", pod_name, "--all-containers=true", f"--tail={log_tail}"],
+                ["logs", resolved_name, "--all-containers=true", f"--tail={log_tail}"],
             )
         except Exception as exc:  # pragma: no cover - exercised via runtime
-            if not should_ignore_current_logs_error(str(exc)):
+            message = str(exc)
+            if is_pod_not_found_error(message):
+                live_pods = refresh_live_pods(namespace, {"items": list(live_pods.values())})
+                resolved_name = resolve_log_target(target, live_pods, attempted_pods)
+                if resolved_name:
+                    continue
+                return {}, []
+            if not should_ignore_current_logs_error(message):
                 collector_errors.append(
                     CollectorError(
                         source="kubernetes",
-                        collector=f"logs/{pod_name}",
-                        details=compact_error_message(str(exc)),
+                        collector=f"logs/{resolved_name}",
+                        details=compact_error_message(message),
                     )
                 )
+            return pod_logs, collector_errors
 
-        if include_previous:
+        if target.include_previous:
             try:
                 previous_logs = run_kubectl_text(
                     namespace,
-                    ["logs", pod_name, "--all-containers=true", "--previous", f"--tail={log_tail}"],
+                    ["logs", resolved_name, "--all-containers=true", "--previous", f"--tail={log_tail}"],
                 )
                 if previous_logs:
                     pod_logs["previous"] = previous_logs
@@ -349,13 +456,39 @@ def collect_pod_logs(
                     collector_errors.append(
                         CollectorError(
                             source="kubernetes",
-                            collector=f"logs/{pod_name}/previous",
+                            collector=f"logs/{resolved_name}/previous",
                             details=compact_error_message(str(exc)),
                         )
                     )
-
         if pod_logs:
-            collected[pod_name] = pod_logs
+            pod_logs["_resolved_pod_name"] = resolved_name
+        return pod_logs, collector_errors
+
+    return {}, []
+
+
+def collect_pod_logs(
+    namespace: str,
+    suspicious_pods: list[LogTarget],
+    pods_snapshot: dict[str, Any],
+    mock_dir: Path | None,
+    log_tail: int,
+) -> tuple[dict[str, Any], list[CollectorError]]:
+    mock_logs = load_mock_logs(mock_dir)
+    collected: dict[str, Any] = {}
+    collector_errors: list[CollectorError] = []
+    live_pods = refresh_live_pods(namespace, pods_snapshot) if not mock_logs else {}
+
+    for target in suspicious_pods:
+        if target.pod_name in mock_logs:
+            collected[target.pod_name] = mock_logs[target.pod_name]
+            continue
+
+        pod_logs, target_errors = fetch_logs_with_retries(namespace, target, live_pods, log_tail)
+        collector_errors.extend(target_errors)
+        resolved_pod_name = pod_logs.pop("_resolved_pod_name", target.pod_name)
+        if pod_logs:
+            collected[resolved_pod_name] = pod_logs
 
     return collected, collector_errors
 
@@ -879,7 +1012,13 @@ def main() -> int:
     kubernetes = collect_kubernetes(args.namespace, mock_dir)
     prometheus = collect_prometheus(args.namespace, args.prometheus_url, mock_dir)
     suspicious_pods = detect_suspicious_pods(kubernetes.get("pods", {}), prometheus)
-    pod_logs, log_errors = collect_pod_logs(args.namespace, suspicious_pods, mock_dir, args.log_tail)
+    pod_logs, log_errors = collect_pod_logs(
+        args.namespace,
+        suspicious_pods,
+        kubernetes.get("pods", {}),
+        mock_dir,
+        args.log_tail,
+    )
     collector_errors = collect_collector_errors(kubernetes, prometheus)
     collector_errors.extend(log_errors)
     total_collectors = len(kubernetes) + len(prometheus) + len(suspicious_pods)

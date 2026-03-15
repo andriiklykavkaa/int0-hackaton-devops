@@ -171,11 +171,18 @@ class AIOpsAgentTests(unittest.TestCase):
 
     def test_collect_pod_logs_from_mock_dir_and_analyze_log_signals(self):
         mock_dir = REPO_ROOT / "platform" / "aiops" / "fixtures" / "sample"
-        suspicious_pods = {"orders-stage-7f88b7698c-abcde": True}
+        suspicious_pods = [
+            self.agent.LogTarget(
+                pod_name="orders-stage-7f88b7698c-abcde",
+                include_previous=True,
+                selector_labels={},
+            )
+        ]
 
         pod_logs, collector_errors = self.agent.collect_pod_logs(
             "retail-store-stage",
             suspicious_pods,
+            {"items": []},
             mock_dir,
             200,
         )
@@ -221,7 +228,13 @@ class AIOpsAgentTests(unittest.TestCase):
         self.assertEqual(300, captured["payload"]["max_tokens"])
 
     def test_collect_pod_logs_ignores_waiting_to_start_errors(self):
-        suspicious_pods = {"orders-stage-123": True}
+        suspicious_pods = [
+            self.agent.LogTarget(
+                pod_name="orders-stage-123",
+                include_previous=True,
+                selector_labels={},
+            )
+        ]
         error_message = (
             'Error from server (BadRequest): container "orders" in pod "orders-stage-123" '
             "is waiting to start: trying and failing to pull image"
@@ -231,12 +244,69 @@ class AIOpsAgentTests(unittest.TestCase):
             pod_logs, collector_errors = self.agent.collect_pod_logs(
                 "retail-store-stage",
                 suspicious_pods,
+                {"items": []},
                 None,
                 200,
             )
 
         self.assertEqual({}, pod_logs)
         self.assertEqual([], collector_errors)
+
+    def test_collect_pod_logs_follows_replacement_pod_for_same_workload(self):
+        suspicious_pods = [
+            self.agent.LogTarget(
+                pod_name="orders-stage-123",
+                include_previous=True,
+                selector_labels={
+                    "app.kubernetes.io/name": "orders",
+                    "app.kubernetes.io/instance": "orders-stage",
+                    "app.kubernetes.io/component": "service",
+                },
+            )
+        ]
+        refreshed_pods = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "orders-stage-456",
+                        "creationTimestamp": "2026-03-15T01:20:00Z",
+                        "labels": {
+                            "app.kubernetes.io/name": "orders",
+                            "app.kubernetes.io/instance": "orders-stage",
+                            "app.kubernetes.io/component": "service",
+                        },
+                    },
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [
+                            {
+                                "name": "orders",
+                                "ready": False,
+                                "restartCount": 3,
+                                "state": {"running": {}},
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+
+        with mock.patch.object(self.agent, "run_kubectl_json", return_value=refreshed_pods):
+            with mock.patch.object(
+                self.agent,
+                "run_kubectl_text",
+                side_effect=["replacement pod logs", ""],
+            ):
+                pod_logs, collector_errors = self.agent.collect_pod_logs(
+                    "retail-store-stage",
+                    suspicious_pods,
+                    {"items": []},
+                    None,
+                    200,
+                )
+
+        self.assertEqual([], collector_errors)
+        self.assertEqual({"orders-stage-456": {"current": "replacement pod logs"}}, pod_logs)
 
     def test_build_dashboard_links_uses_stable_grafana_paths(self):
         links = self.agent.build_dashboard_links("http://34.116.234.19/")
