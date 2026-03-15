@@ -5,7 +5,6 @@ metadata:
   name: {{ include "carts.configMapName" . }}
 data:
   RETAIL_CART_PERSISTENCE_PROVIDER: {{ .Values.app.persistence.provider }}
-  MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILES_HISTOGRAM_HTTP_SERVER_REQUESTS: "true"
   MANAGEMENT_METRICS_TAGS_APPLICATION: cart
   {{- if (eq "dynamodb" .Values.app.persistence.provider) }}
   RETAIL_CART_PERSISTENCE_DYNAMODB_TABLE_NAME: {{ .Values.app.persistence.dynamodb.tableName }}
