@@ -21,8 +21,8 @@ spec:
           args:
             - run
             - /scripts/retail-store.js
-            - --out
-            - json=/results/summary.json
+            - --summary-export
+            - /dev/stderr
             - --console-output
             - /dev/stdout
           env:
