@@ -73,6 +73,7 @@ class AIOpsAgentTests(unittest.TestCase):
             findings,
             collector_errors,
             len(kubernetes) + len(prometheus),
+            {},
         )
 
         self.assertEqual([], collector_errors)
@@ -120,6 +121,7 @@ class AIOpsAgentTests(unittest.TestCase):
             findings,
             collector_errors,
             len(kubernetes) + len(prometheus),
+            {},
         )
 
         self.assertEqual("degraded", summary["overall_status"])
@@ -166,6 +168,57 @@ class AIOpsAgentTests(unittest.TestCase):
         self.assertEqual("failed", report["summary"]["collection_status"])
         self.assertEqual(5, report["summary"]["collector_error_count"])
         self.assertEqual(0, report["summary"]["finding_count"])
+
+    def test_collect_pod_logs_from_mock_dir_and_analyze_log_signals(self):
+        mock_dir = REPO_ROOT / "platform" / "aiops" / "fixtures" / "sample"
+        suspicious_pods = {"orders-stage-7f88b7698c-abcde": True}
+
+        pod_logs, collector_errors = self.agent.collect_pod_logs(
+            "retail-store-stage",
+            suspicious_pods,
+            mock_dir,
+            200,
+        )
+        findings = self.agent.analyze_logs(pod_logs)
+
+        self.assertEqual([], collector_errors)
+        self.assertIn("orders-stage-7f88b7698c-abcde", pod_logs)
+        self.assertGreaterEqual(len(findings), 2)
+        self.assertTrue(any(item.source == "logs" for item in findings))
+
+    def test_call_openai_compatible_includes_max_tokens_when_configured(self):
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {"choices": [{"message": {"content": "ok"}}]}
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout=0):
+            captured["timeout"] = timeout
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return FakeResponse()
+
+        config = self.agent.LlmConfig(
+            base_url="http://localhost:11434/v1",
+            model="test-model",
+            api_key="dummy",
+            max_tokens=300,
+        )
+
+        with mock.patch.object(self.agent.urllib.request, "urlopen", side_effect=fake_urlopen):
+            result = self.agent.call_openai_compatible(config, "system", "user")
+
+        self.assertEqual("ok", result)
+        self.assertEqual(30, captured["timeout"])
+        self.assertEqual(300, captured["payload"]["max_tokens"])
 
 
 if __name__ == "__main__":

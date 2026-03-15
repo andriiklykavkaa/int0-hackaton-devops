@@ -1,0 +1,6 @@
+{
+  "orders-stage-7f88b7698c-abcde": {
+    "current": "2026-03-15T10:00:01Z ERROR [orders] java.net.ConnectException: Connection refused\n2026-03-15T10:00:02Z ERROR [orders] Order processing failed for request 8d7c",
+    "previous": "2026-03-15T09:59:58Z ERROR [orders] java.lang.IllegalStateException: Failed to initialize datasource\n2026-03-15T09:59:58Z ERROR [orders] at com.amazon.sample.orders.OrdersApplication.main(OrdersApplication.java:21)"
+  }
+}

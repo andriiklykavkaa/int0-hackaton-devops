@@ -48,6 +48,7 @@ class LlmConfig:
     base_url: str
     model: str
     api_key: str
+    max_tokens: int | None = None
 
 
 @dataclass
@@ -56,6 +57,24 @@ class CollectorError:
     collector: str
     details: str
     query: str | None = None
+
+
+LOG_PATTERNS = [
+    (
+        "critical",
+        "runtime_exception",
+        ("exception", "traceback", "panic:", "fatal"),
+        "Application error signature found in pod logs.",
+        "Inspect the stack trace, recent deploys, and dependency failures for this pod.",
+    ),
+    (
+        "warning",
+        "dependency_failure",
+        ("connection refused", "timed out", "timeout", "connection reset"),
+        "Connectivity or dependency failure found in pod logs.",
+        "Check upstream dependencies, DNS/service discovery, and network policies.",
+    ),
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,6 +110,12 @@ def parse_args() -> argparse.Namespace:
         help="API key for the OpenAI-compatible API. Can also come from AIOPS_OPENAI_API_KEY.",
     )
     parser.add_argument(
+        "--llm-max-tokens",
+        type=int,
+        default=int(os.getenv("AIOPS_OPENAI_MAX_TOKENS", "0") or "0"),
+        help="Optional max_tokens value for the OpenAI-compatible API call.",
+    )
+    parser.add_argument(
         "--format",
         choices=("markdown", "json"),
         default="markdown",
@@ -100,6 +125,12 @@ def parse_args() -> argparse.Namespace:
         "--fail-on-collector-errors",
         action="store_true",
         help="Exit non-zero when Kubernetes or Prometheus signal collection fails.",
+    )
+    parser.add_argument(
+        "--log-tail",
+        type=int,
+        default=200,
+        help="Number of log lines to collect for suspicious pods. Default: 200.",
     )
     return parser.parse_args()
 
@@ -128,6 +159,14 @@ def run_kubectl_json(namespace: str, args: list[str]) -> dict[str, Any]:
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.strip() or f"kubectl failed: {' '.join(cmd)}")
     return json.loads(completed.stdout)
+
+
+def run_kubectl_text(namespace: str, args: list[str]) -> str:
+    cmd = ["kubectl", "-n", namespace, *args]
+    completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or f"kubectl failed: {' '.join(cmd)}")
+    return completed.stdout.strip()
 
 
 def collect_kubernetes(namespace: str, mock_dir: Path | None) -> dict[str, Any]:
@@ -181,6 +220,143 @@ def compact_error_message(message: str) -> str:
     if not lines:
         return "Unknown collector error."
     return lines[-1]
+
+
+def needs_previous_logs(pod: dict[str, Any]) -> bool:
+    for status in pod.get("status", {}).get("containerStatuses", []):
+        state = status.get("state", {})
+        waiting = state.get("waiting", {})
+        if waiting.get("reason") == "CrashLoopBackOff":
+            return True
+        if status.get("restartCount", 0) > 0:
+            return True
+    return False
+
+
+def detect_suspicious_pods(pods: dict[str, Any], prometheus: dict[str, Any]) -> dict[str, bool]:
+    suspicious: dict[str, bool] = {}
+
+    for pod in pods.get("items", []):
+        name = pod.get("metadata", {}).get("name")
+        if not name:
+            continue
+        phase = pod.get("status", {}).get("phase", "Unknown")
+        container_statuses = pod.get("status", {}).get("containerStatuses", [])
+        has_waiting_container = any(status.get("state", {}).get("waiting") for status in container_statuses)
+        has_unready_container = any(not status.get("ready", True) for status in container_statuses)
+        has_restarts = any(status.get("restartCount", 0) > 0 for status in container_statuses)
+
+        if phase != "Running" or has_waiting_container or has_unready_container or has_restarts:
+            suspicious[name] = needs_previous_logs(pod)
+
+    for result in prometheus.get("pod_restarts", {}).get("data", {}).get("result", []):
+        value = float_value(result)
+        if value is not None and value > 2:
+            pod_name = result.get("metric", {}).get("pod")
+            if pod_name:
+                suspicious[pod_name] = True
+
+    return suspicious
+
+
+def load_mock_logs(mock_dir: Path | None) -> dict[str, Any]:
+    payload = load_mock_json(mock_dir, "logs")
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def should_ignore_previous_logs_error(message: str) -> bool:
+    lowered = message.lower()
+    return (
+        "previous terminated container" in lowered
+        or "not found" in lowered
+        or "previous terminated container" in compact_error_message(message).lower()
+    )
+
+
+def collect_pod_logs(
+    namespace: str,
+    suspicious_pods: dict[str, bool],
+    mock_dir: Path | None,
+    log_tail: int,
+) -> tuple[dict[str, Any], list[CollectorError]]:
+    mock_logs = load_mock_logs(mock_dir)
+    collected: dict[str, Any] = {}
+    collector_errors: list[CollectorError] = []
+
+    for pod_name, include_previous in suspicious_pods.items():
+        if pod_name in mock_logs:
+            collected[pod_name] = mock_logs[pod_name]
+            continue
+
+        pod_logs: dict[str, str] = {}
+        try:
+            pod_logs["current"] = run_kubectl_text(
+                namespace,
+                ["logs", pod_name, "--all-containers=true", f"--tail={log_tail}"],
+            )
+        except Exception as exc:  # pragma: no cover - exercised via runtime
+            collector_errors.append(
+                CollectorError(
+                    source="kubernetes",
+                    collector=f"logs/{pod_name}",
+                    details=compact_error_message(str(exc)),
+                )
+            )
+
+        if include_previous:
+            try:
+                previous_logs = run_kubectl_text(
+                    namespace,
+                    ["logs", pod_name, "--all-containers=true", "--previous", f"--tail={log_tail}"],
+                )
+                if previous_logs:
+                    pod_logs["previous"] = previous_logs
+            except Exception as exc:  # pragma: no cover - exercised via runtime
+                if not should_ignore_previous_logs_error(str(exc)):
+                    collector_errors.append(
+                        CollectorError(
+                            source="kubernetes",
+                            collector=f"logs/{pod_name}/previous",
+                            details=compact_error_message(str(exc)),
+                        )
+                    )
+
+        if pod_logs:
+            collected[pod_name] = pod_logs
+
+    return collected, collector_errors
+
+
+def excerpt_log(text: str, max_lines: int = 20, max_chars: int = 1600) -> str:
+    lines = text.splitlines()
+    excerpt = "\n".join(lines[-max_lines:])
+    if len(excerpt) <= max_chars:
+        return excerpt
+    return excerpt[-max_chars:]
+
+
+def build_log_context(pod_logs: dict[str, Any]) -> list[dict[str, str]]:
+    context: list[dict[str, str]] = []
+    for pod_name, payload in pod_logs.items():
+        entry = {"pod": pod_name}
+        current = payload.get("current")
+        previous = payload.get("previous")
+        if current:
+            entry["current_excerpt"] = excerpt_log(current)
+        if previous:
+            entry["previous_excerpt"] = excerpt_log(previous)
+        context.append(entry)
+    return context
+
+
+def find_log_match(text: str, patterns: tuple[str, ...]) -> str | None:
+    for line in text.splitlines():
+        lowered = line.lower()
+        if any(pattern in lowered for pattern in patterns):
+            return line.strip()
+    return None
 
 
 def collect_collector_errors(
@@ -423,10 +599,41 @@ def analyze_prometheus(metrics: dict[str, Any]) -> list[Finding]:
     return findings
 
 
+def analyze_logs(pod_logs: dict[str, Any]) -> list[Finding]:
+    findings: list[Finding] = []
+
+    for pod_name, payload in pod_logs.items():
+        combined = "\n".join(
+            [
+                payload.get("current", ""),
+                payload.get("previous", ""),
+            ]
+        ).strip()
+        if not combined:
+            continue
+
+        for severity, label, patterns, details, recommendation in LOG_PATTERNS:
+            matched_line = find_log_match(combined, patterns)
+            if not matched_line:
+                continue
+            findings.append(
+                Finding(
+                    severity=severity,
+                    source="logs",
+                    title=f"Log signal in {pod_name}: {label.replace('_', ' ')}",
+                    details=f"{details} Matched line: {matched_line}",
+                    recommendation=recommendation,
+                )
+            )
+
+    return findings
+
+
 def summarize(
     findings: list[Finding],
     collector_errors: list[CollectorError],
     total_collectors: int,
+    pod_logs: dict[str, Any],
 ) -> dict[str, Any]:
     severity_rank = {"info": 0, "warning": 1, "critical": 2}
     overall = "healthy"
@@ -449,6 +656,7 @@ def summarize(
         "critical_count": sum(1 for item in findings if item.severity == "critical"),
         "warning_count": sum(1 for item in findings if item.severity == "warning"),
         "collector_error_count": len(collector_errors),
+        "pod_log_count": len(pod_logs),
         "collector_errors": [asdict(item) for item in collector_errors],
         "findings": [asdict(item) for item in findings],
     }
@@ -472,6 +680,7 @@ def build_llm_config(args: argparse.Namespace, mock_dir: Path | None) -> LlmConf
         base_url=args.llm_base_url,
         model=args.llm_model,
         api_key=args.llm_api_key,
+        max_tokens=args.llm_max_tokens or None,
     )
 
 
@@ -485,6 +694,8 @@ def call_openai_compatible(config: LlmConfig, system_prompt: str, user_prompt: s
         ],
         "temperature": 0.2,
     }
+    if config.max_tokens is not None:
+        payload["max_tokens"] = config.max_tokens
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -503,6 +714,7 @@ def generate_llm_analysis(
     environment: str,
     namespace: str,
     summary: dict[str, Any],
+    pod_logs: dict[str, Any],
     mock_dir: Path | None,
     config: LlmConfig | None,
 ) -> str | None:
@@ -522,6 +734,7 @@ def generate_llm_analysis(
             "critical_count": summary["critical_count"],
             "warning_count": summary["warning_count"],
             "findings": summary["findings"],
+            "pod_logs": build_log_context(pod_logs),
         },
         indent=2,
     )
@@ -532,6 +745,7 @@ def render_markdown(
     environment: str,
     namespace: str,
     summary: dict[str, Any],
+    pod_logs: dict[str, Any],
     llm_analysis: str | None,
 ) -> str:
     lines = [
@@ -544,6 +758,7 @@ def render_markdown(
         f"- Findings: `{summary['finding_count']}`",
         f"- Critical: `{summary['critical_count']}`",
         f"- Warning: `{summary['warning_count']}`",
+        f"- Pod logs collected: `{summary['pod_log_count']}`",
         f"- Collector errors: `{summary['collector_error_count']}`",
         "",
     ]
@@ -581,6 +796,19 @@ def render_markdown(
             ]
         )
 
+    if pod_logs:
+        lines.extend(["", "## Log Evidence", ""])
+        for pod_name, payload in pod_logs.items():
+            lines.append(f"- Pod `{pod_name}`")
+            if payload.get("current"):
+                lines.append("  - Current excerpt:")
+                for line in excerpt_log(payload["current"], max_lines=12, max_chars=800).splitlines():
+                    lines.append(f"    {line}")
+            if payload.get("previous"):
+                lines.append("  - Previous excerpt:")
+                for line in excerpt_log(payload["previous"], max_lines=12, max_chars=800).splitlines():
+                    lines.append(f"    {line}")
+
     if llm_analysis:
         lines.extend(["", "## AI Diagnosis", "", llm_analysis])
 
@@ -594,8 +822,11 @@ def main() -> int:
 
     kubernetes = collect_kubernetes(args.namespace, mock_dir)
     prometheus = collect_prometheus(args.namespace, args.prometheus_url, mock_dir)
+    suspicious_pods = detect_suspicious_pods(kubernetes.get("pods", {}), prometheus)
+    pod_logs, log_errors = collect_pod_logs(args.namespace, suspicious_pods, mock_dir, args.log_tail)
     collector_errors = collect_collector_errors(kubernetes, prometheus)
-    total_collectors = len(kubernetes) + len(prometheus)
+    collector_errors.extend(log_errors)
+    total_collectors = len(kubernetes) + len(prometheus) + len(suspicious_pods)
 
     findings = []
     findings.extend(analyze_pods(kubernetes.get("pods", {})))
@@ -603,14 +834,16 @@ def main() -> int:
     findings.extend(analyze_hpa(kubernetes.get("hpa", {})))
     findings.extend(analyze_events(kubernetes.get("events", {})))
     findings.extend(analyze_prometheus(prometheus))
+    findings.extend(analyze_logs(pod_logs))
 
     report = {
         "environment": args.environment,
         "namespace": args.namespace,
-        "summary": summarize(findings, collector_errors, total_collectors),
+        "summary": summarize(findings, collector_errors, total_collectors, pod_logs),
         "raw": {
             "kubernetes": kubernetes,
             "prometheus": prometheus,
+            "logs": pod_logs,
         },
     }
 
@@ -618,6 +851,7 @@ def main() -> int:
         environment=args.environment,
         namespace=args.namespace,
         summary=report["summary"],
+        pod_logs=pod_logs,
         mock_dir=mock_dir,
         config=llm_config,
     )
@@ -635,6 +869,7 @@ def main() -> int:
                 args.environment,
                 args.namespace,
                 report["summary"],
+                pod_logs,
                 llm_analysis,
             )
         )
