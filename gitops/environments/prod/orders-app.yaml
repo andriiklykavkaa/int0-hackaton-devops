@@ -15,6 +15,8 @@ spec:
       valueFiles:
         - values.yaml
       parameters:
+        - name: app.persistence.dbHost
+          value: "orders-prod-postgresql"
         - name: image.repository
           value: europe-central2-docker.pkg.dev/int-hackaton-uyak/retail-images-prod/retail-store-sample-orders
         - name: image.tag
@@ -28,7 +30,7 @@ spec:
         - name: metrics.enabled
           value: "true"
         - name: app.persistence.provider
-          value: postgres
+          value: in-memory
         - name: postgresql.create
           value: "true"
         - name: postgresql.persistentVolume.enabled
