@@ -32,6 +32,8 @@ alertmanager:
 grafana:
   enabled: true
   adminPassword: change-me-securely
+  service:
+    type: LoadBalancer
   persistence:
     enabled: true
     storageClassName: standard-rwo
