@@ -34,7 +34,13 @@ spec:
         - name: ingress.enabled
           value: "true"
         - name: app.endpoints.catalog
-          value: http://catalog.retail-store-stage.svc.cluster.local
+          value: http://catalog-stage.retail-store-stage.svc.cluster.local
+        - name: app.endpoints.carts
+          value: http://cart-stage-carts.retail-store-stage.svc.cluster.local
+        - name: app.endpoints.checkout
+          value: http://checkout-stage.retail-store-stage.svc.cluster.local
+        - name: app.endpoints.orders
+          value: http://orders-stage.retail-store-stage.svc.cluster.local
   destination:
     server: https://kubernetes.default.svc
     namespace: retail-store-stage
